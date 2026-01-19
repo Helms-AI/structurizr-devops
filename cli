@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
 # Wrapper script to execute the structurizr-devops CLI
+# Auto-rebuilds when source files change (SHA-based detection)
 #
 # Usage: ./cli <command> [options]
 # Example: ./cli validate platform
@@ -8,11 +9,53 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_DIR="$SCRIPT_DIR/command-line"
+VERSION_FILE="$CLI_DIR/.version"
 
-# Check if CLI is built
-if [ ! -d "$CLI_DIR/dist" ]; then
-    echo "CLI not built. Running: cd command-line && npm install && npm run build"
-    cd "$CLI_DIR" && npm install && npm run build
+# Compute SHA of source files
+compute_sha() {
+    # Hash all .ts files in src/, plus config files
+    find "$CLI_DIR/src" -type f -name '*.ts' -exec cat {} \; 2>/dev/null | shasum -a 256 | cut -d' ' -f1
+    cat "$CLI_DIR/package.json" "$CLI_DIR/tsconfig.json" 2>/dev/null | shasum -a 256 | cut -d' ' -f1
+}
+
+# Get combined hash of all inputs
+get_current_sha() {
+    compute_sha | shasum -a 256 | cut -d' ' -f1
+}
+
+# Check if rebuild is needed
+needs_rebuild() {
+    # Rebuild if dist doesn't exist
+    if [ ! -f "$CLI_DIR/dist/index.js" ]; then
+        return 0
+    fi
+
+    # Rebuild if .version doesn't exist
+    if [ ! -f "$VERSION_FILE" ]; then
+        return 0
+    fi
+
+    # Rebuild if SHA doesn't match
+    local stored_sha=$(cat "$VERSION_FILE" 2>/dev/null)
+    local current_sha=$(get_current_sha)
+
+    if [ "$stored_sha" != "$current_sha" ]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Check if rebuild needed
+if needs_rebuild; then
+    echo "Building CLI..."
+    cd "$CLI_DIR" && npm install --silent && npm run build --silent
+    if [ $? -ne 0 ]; then
+        echo "Build failed!" >&2
+        exit 1
+    fi
+    # Store current SHA after successful build
+    get_current_sha > "$VERSION_FILE"
 fi
 
 # Execute CLI with all arguments
