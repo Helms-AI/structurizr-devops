@@ -107,9 +107,7 @@ Follow the interactive guide to configure your GitHub Actions runner.
 structurizr-devops/
 ├── .github/workflows/
 │   ├── ci.yml                  # Validation on all branches
-│   ├── promote-dev.yml         # Auto-promote on develop branch
-│   ├── promote-staging.yml     # Auto-promote on main branch
-│   ├── promote-prod.yml        # Manual production promotion
+│   ├── promote.yml             # Unified promotion (integration + production)
 │   ├── quarterly-snapshot.yml  # Create quarterly architecture snapshots
 │   └── start-quarter.yml       # Initialize new quarter branches
 ├── containers/
@@ -180,43 +178,52 @@ The `workspaces/shared/domains.yaml` file serves as a catalog of all domains wit
 
 ## Workflows
 
-### CI (ci.yml)
+### CI - Validate Workspaces (ci.yml)
 
-- **Trigger**: Push to any branch, PR to main/develop
-- **Action**: Validates all domain workspace DSL files
+- **Trigger**: Push to any branch, PR to main/develop (when workspace files change)
+- **Action**: Validates all domain and perspective DSL files in `workspaces/current/`
 - **Runner**: `self-hosted, structurizr, nerdctl`
+- **Jobs**: Discovers workspaces dynamically, validates each in parallel
 
-### Development Promotion (promote-dev.yml)
+### Promote Workspaces (promote.yml)
 
-- **Trigger**: Push to `develop` branch
-- **Action**: Validates and promotes all domains
-- **Environment**: development
+Unified promotion workflow for all environments.
 
-### Staging Promotion (promote-staging.yml)
+| Trigger | Environment | Confirmation |
+|---------|-------------|--------------|
+| Push to `develop` | integration | None (auto) |
+| Manual dispatch | integration | None |
+| Manual dispatch | production | Must type "PRODUCTION" |
 
-- **Trigger**: Push to `main` branch
-- **Action**: Validates and promotes all domains
-- **Environment**: staging
-
-### Production Promotion (promote-prod.yml)
-
-- **Trigger**: Manual (workflow_dispatch)
-- **Confirmation**: Must type "PRODUCTION" to confirm
-- **Options**: Promote all domains or select specific one
-- **Environment**: production
+- **Action**: Validates then promotes domains and perspectives
+- **Options**: Promote all workspaces or select specific one
+- **Credentials**: Uses environment-specific secrets (e.g., `STRUCTURIZR_PLATFORM_WORKSPACE_KEY_INT`)
 
 ### Quarterly Snapshot (quarterly-snapshot.yml)
 
 - **Trigger**: Manual (workflow_dispatch)
-- **Action**: Creates quarterly architecture snapshots
-- **Creates**: Structurizr workspace branches + git tags
+- **Inputs**:
+  - `quarter`: Quarter identifier (e.g., q2-2025)
+  - `create_git_tag`: Create immutable git tag (default: true)
+  - `create_workspace_branches`: Create branches on Structurizr On-Premises (default: false)
+- **Creates**:
+  - `workspaces/{quarter}/` directory snapshot
+  - Git tag `{quarter}-final`
+  - Optional: Structurizr workspace branches
 - **Purpose**: Preserve architecture state at quarter end
 
 ### Start New Quarter (start-quarter.yml)
 
 - **Trigger**: Manual (workflow_dispatch)
-- **Action**: Creates release branch for new quarter
-- **Options**: Merge planning branch, create next planning branch
+- **Inputs**:
+  - `new_quarter`: New quarter (e.g., q3-2025)
+  - `base_branch`: Branch to create from (default: main)
+  - `merge_planning`: Merge existing planning branch if exists
+  - `create_next_planning`: Create planning branch for next quarter
+  - `next_quarter`: Next quarter identifier (e.g., q4-2025)
+- **Creates**:
+  - `release/{new_quarter}` branch
+  - Optional: `planning/{next_quarter}` branch
 - **Purpose**: Initialize quarterly development cycle
 
 ## Quarterly Architecture Management
