@@ -1,0 +1,291 @@
+# =============================================================================
+# Structurizr Workspace Promotion
+# =============================================================================
+# Single unified workflow for promoting workspaces to all environments.
+#
+# Triggers:
+#   - Push to develop branch -> integration (auto)
+#   - Manual dispatch -> integration or production
+#
+# Environments:
+#   - integration: Development/staging environment (auto-deploy on develop push)
+#   - production: Production environment (manual dispatch with confirmation)
+# =============================================================================
+name: Promote Workspaces
+
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - 'workspaces/**/*.dsl'
+      - '.github/workflows/promote.yml'
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - integration
+          - production
+        default: integration
+      workspace:
+        description: 'Workspace to promote (leave empty for all)'
+        required: false
+        type: string
+      confirmation:
+        description: 'Type PRODUCTION to confirm production deployment'
+        required: false
+        type: string
+
+jobs:
+  # =============================================================================
+  # Set Environment
+  # =============================================================================
+  set-environment:
+    name: Determine Environment
+    runs-on: [self-hosted, structurizr, nerdctl]
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      url: ${{ steps.env.outputs.url }}
+    steps:
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "environment=integration" >> $GITHUB_OUTPUT
+            echo "url=${{ secrets.STRUCTURIZR_URL_INT }}" >> $GITHUB_OUTPUT
+          else
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            if [ "${{ inputs.environment }}" = "production" ]; then
+              echo "url=${{ secrets.STRUCTURIZR_URL_PROD }}" >> $GITHUB_OUTPUT
+            else
+              echo "url=${{ secrets.STRUCTURIZR_URL_INT }}" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  # =============================================================================
+  # Verify Production Confirmation
+  # =============================================================================
+  verify-production:
+    name: Verify Production Confirmation
+    needs: set-environment
+    if: needs.set-environment.outputs.environment == 'production'
+    runs-on: [self-hosted, structurizr, nerdctl]
+    steps:
+      - name: Verify confirmation
+        run: |
+          if [ "${{ inputs.confirmation }}" != "PRODUCTION" ]; then
+            echo "ERROR: Must type 'PRODUCTION' to confirm production deployment"
+            echo "You entered: '${{ inputs.confirmation }}'"
+            exit 1
+          fi
+          echo "Production deployment confirmed"
+
+  # =============================================================================
+  # Discover Workspaces
+  # =============================================================================
+  discover:
+    name: Discover Workspaces
+    needs: [set-environment]
+    if: always() && (needs.set-environment.outputs.environment == 'integration' || needs.verify-production.result == 'success' || needs.verify-production.result == 'skipped')
+    runs-on: [self-hosted, structurizr, nerdctl]
+    outputs:
+      domains: ${{ steps.find-workspaces.outputs.domains }}
+      perspectives: ${{ steps.find-workspaces.outputs.perspectives }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find workspaces
+        id: find-workspaces
+        run: |
+          # Find domains
+          if [ -n "${{ inputs.workspace }}" ]; then
+            # Single workspace specified
+            if [ -d "workspaces/current/domains/${{ inputs.workspace }}" ]; then
+              domains='["${{ inputs.workspace }}"]'
+            else
+              domains='[]'
+            fi
+            if [ -d "workspaces/current/perspectives/${{ inputs.workspace }}" ]; then
+              perspectives='["${{ inputs.workspace }}"]'
+            else
+              perspectives='[]'
+            fi
+          else
+            # Discover all workspaces
+            domains=$(find workspaces/current/domains -name "workspace.dsl" -type f 2>/dev/null | \
+              xargs -I {} dirname {} | \
+              xargs -I {} basename {} | \
+              jq -R -s -c 'split("\n") | map(select(length > 0))' || echo '[]')
+
+            perspectives=$(find workspaces/current/perspectives -name "workspace.dsl" -type f 2>/dev/null | \
+              xargs -I {} dirname {} | \
+              xargs -I {} basename {} | \
+              jq -R -s -c 'split("\n") | map(select(length > 0))' || echo '[]')
+          fi
+
+          echo "domains=$domains" >> $GITHUB_OUTPUT
+          echo "perspectives=$perspectives" >> $GITHUB_OUTPUT
+          echo "Discovered domains: $domains"
+          echo "Discovered perspectives: $perspectives"
+
+  # =============================================================================
+  # Validate Domains
+  # =============================================================================
+  validate-domains:
+    name: Validate ${{ matrix.domain }}
+    needs: [set-environment, discover]
+    if: needs.discover.outputs.domains != '[]'
+    runs-on: [self-hosted, structurizr, nerdctl]
+    strategy:
+      matrix:
+        domain: ${{ fromJson(needs.discover.outputs.domains) }}
+      fail-fast: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate ${{ matrix.domain }}
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          echo "Validating ${{ matrix.domain }} domain..."
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest \
+            validate \
+            -workspace /workspaces/workspaces/current/domains/${{ matrix.domain }}/workspace.dsl
+
+  # =============================================================================
+  # Validate Perspectives
+  # =============================================================================
+  validate-perspectives:
+    name: Validate ${{ matrix.perspective }}
+    needs: [set-environment, discover]
+    if: needs.discover.outputs.perspectives != '[]'
+    runs-on: [self-hosted, structurizr, nerdctl]
+    strategy:
+      matrix:
+        perspective: ${{ fromJson(needs.discover.outputs.perspectives) }}
+      fail-fast: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate ${{ matrix.perspective }}
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          echo "Validating ${{ matrix.perspective }} perspective..."
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest \
+            validate \
+            -workspace /workspaces/workspaces/current/perspectives/${{ matrix.perspective }}/workspace.dsl
+
+  # =============================================================================
+  # Promote Domains
+  # =============================================================================
+  promote-domains:
+    name: Promote ${{ matrix.domain }}
+    needs: [set-environment, discover, validate-domains]
+    if: always() && (needs.validate-domains.result == 'success' || needs.validate-domains.result == 'skipped') && needs.discover.outputs.domains != '[]'
+    runs-on: [self-hosted, structurizr, nerdctl]
+    environment: ${{ needs.set-environment.outputs.environment }}
+    strategy:
+      matrix:
+        domain: ${{ fromJson(needs.discover.outputs.domains) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get credentials
+        id: creds
+        run: |
+          DOMAIN_UPPER=$(echo "${{ matrix.domain }}" | tr '[:lower:]-' '[:upper:]_')
+          ENV_SUFFIX=$(echo "${{ needs.set-environment.outputs.environment }}" | tr '[:lower:]' '[:upper:]' | sed 's/INTEGRATION/INT/')
+          echo "domain_upper=$DOMAIN_UPPER" >> $GITHUB_OUTPUT
+          echo "env_suffix=$ENV_SUFFIX" >> $GITHUB_OUTPUT
+
+      - name: Promote ${{ matrix.domain }}
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          echo "Promoting ${{ matrix.domain }} to ${{ needs.set-environment.outputs.environment }}"
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest push \
+            -url "${{ needs.set-environment.outputs.url }}" \
+            -id "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_ID', steps.creds.outputs.domain_upper)] }}" \
+            -key "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_KEY_{1}', steps.creds.outputs.domain_upper, steps.creds.outputs.env_suffix)] }}" \
+            -secret "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_SECRET_{1}', steps.creds.outputs.domain_upper, steps.creds.outputs.env_suffix)] }}" \
+            -workspace /workspaces/workspaces/current/domains/${{ matrix.domain }}/workspace.dsl
+
+  # =============================================================================
+  # Promote Perspectives
+  # =============================================================================
+  promote-perspectives:
+    name: Promote ${{ matrix.perspective }}
+    needs: [set-environment, discover, validate-perspectives]
+    if: always() && (needs.validate-perspectives.result == 'success' || needs.validate-perspectives.result == 'skipped') && needs.discover.outputs.perspectives != '[]'
+    runs-on: [self-hosted, structurizr, nerdctl]
+    environment: ${{ needs.set-environment.outputs.environment }}
+    strategy:
+      matrix:
+        perspective: ${{ fromJson(needs.discover.outputs.perspectives) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get credentials
+        id: creds
+        run: |
+          PERSPECTIVE_UPPER=$(echo "${{ matrix.perspective }}" | tr '[:lower:]-' '[:upper:]_')
+          ENV_SUFFIX=$(echo "${{ needs.set-environment.outputs.environment }}" | tr '[:lower:]' '[:upper:]' | sed 's/INTEGRATION/INT/')
+          echo "perspective_upper=$PERSPECTIVE_UPPER" >> $GITHUB_OUTPUT
+          echo "env_suffix=$ENV_SUFFIX" >> $GITHUB_OUTPUT
+
+      - name: Promote ${{ matrix.perspective }}
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          echo "Promoting ${{ matrix.perspective }} perspective to ${{ needs.set-environment.outputs.environment }}"
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest push \
+            -url "${{ needs.set-environment.outputs.url }}" \
+            -id "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_ID', steps.creds.outputs.perspective_upper)] }}" \
+            -key "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_KEY_{1}', steps.creds.outputs.perspective_upper, steps.creds.outputs.env_suffix)] }}" \
+            -secret "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_SECRET_{1}', steps.creds.outputs.perspective_upper, steps.creds.outputs.env_suffix)] }}" \
+            -workspace /workspaces/workspaces/current/perspectives/${{ matrix.perspective }}/workspace.dsl
+
+  # =============================================================================
+  # Summary
+  # =============================================================================
+  summary:
+    name: Promotion Summary
+    needs: [set-environment, discover, promote-domains, promote-perspectives]
+    if: always()
+    runs-on: [self-hosted, structurizr, nerdctl]
+    steps:
+      - name: Summary
+        run: |
+          echo "=============================================="
+          echo "Promotion Complete"
+          echo "=============================================="
+          echo ""
+          echo "Environment: ${{ needs.set-environment.outputs.environment }}"
+          echo "Domains promoted: ${{ needs.discover.outputs.domains }}"
+          echo "Perspectives promoted: ${{ needs.discover.outputs.perspectives }}"
+          echo ""
+          echo "URL: ${{ needs.set-environment.outputs.url }}"

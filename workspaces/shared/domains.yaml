@@ -6,10 +6,19 @@
 #
 # Adding a new domain:
 #   1. Add entry below with required fields
-#   2. Create workspace directory: workspaces/domains/{name}/
-#   3. Run: ./scripts/domain-create.sh {name} (optional scaffolding)
+#   2. Create workspace directory: workspaces/current/domains/{name}/
+#   3. Run: ./cli workspace:create {name} (optional scaffolding)
 #   4. Configure GitHub secrets for the domain
+#
+# Workspace IDs:
+#   Each domain/perspective maps to a single workspace ID on Structurizr
+#   On-Premises, with branches per quarter:
+#   - main branch: current quarter (via workspaces/current/)
+#   - quarter branches: archived quarters (via workspaces/{quarter}/)
 # =============================================================================
+
+# Current active quarter
+current_quarter: q2-2025
 
 domains:
   # ---------------------------------------------------------------------------
@@ -19,6 +28,7 @@ domains:
     name: Platform Domain
     description: Core platform infrastructure and shared services
     owner: Platform Team
+    workspace_id: 1
     port: 20100
     workspace_file: workspace.dsl
     color: "#1168bd"
@@ -34,6 +44,7 @@ domains:
     name: Orders Domain
     description: Order management and fulfillment business domain
     owner: Commerce Team
+    workspace_id: 3
     port: 20101
     workspace_file: workspace.dsl
     color: "#2e7d32"
@@ -50,6 +61,7 @@ domains:
     name: Notifications Domain
     description: Notification and messaging business domain
     owner: Engagement Team
+    workspace_id: 5
     port: 20102
     workspace_file: workspace.dsl
     color: "#7b1fa2"
@@ -68,6 +80,7 @@ perspectives:
   executive:
     name: Executive Dashboard
     description: High-level business architecture view for leadership
+    workspace_id: 10
     port: 20200
     includes:
       - platform
@@ -77,6 +90,7 @@ perspectives:
   security:
     name: Security Architecture
     description: Security-focused view showing trust boundaries and data flows
+    workspace_id: 11
     port: 20201
     includes:
       - platform
@@ -86,6 +100,7 @@ perspectives:
   technical:
     name: Technical Architecture
     description: Developer-focused view with implementation details
+    workspace_id: 12
     port: 20202
     includes:
       - platform
@@ -99,3 +114,15 @@ perspectives:
 # Domains:        20100-20199
 # Perspectives:   20200-20299
 # Reserved:       20300-20399 (future use)
+
+# =============================================================================
+# Workspace ID Mapping
+# =============================================================================
+# | Domain/Perspective | Workspace ID | Branches              |
+# |--------------------|--------------|------------------------|
+# | platform           | 1            | main, q1-2025, q2-2025 |
+# | orders             | 3            | main, q1-2025, q2-2025 |
+# | notifications      | 5            | main, q1-2025, q2-2025 |
+# | executive          | 10           | main, q1-2025, q2-2025 |
+# | security           | 11           | main, q1-2025, q2-2025 |
+# | technical          | 12           | main, q1-2025, q2-2025 |

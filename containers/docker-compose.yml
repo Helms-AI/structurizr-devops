@@ -1,26 +1,18 @@
-# Structurizr DevOps - Full Local Stack
-# Start with: nerdctl compose up -d
-# Stop with: nerdctl compose down
-
+# Structurizr DevOps - Simplified Local Stack
 # =============================================================================
-# YAML Anchors for DRY Configuration
+# Primary usage: On-Premises only (promotion target)
+# Lite instances: On-demand via ./scripts/lite.sh or profile
+#
+# Start On-Premises:   nerdctl compose up -d
+# Start with Lite:     nerdctl compose --profile lite up -d
+# Stop:                nerdctl compose down
 # =============================================================================
-x-structurizr-lite: &structurizr-lite-defaults
-  image: structurizr/lite:latest
-  restart: unless-stopped
-  environment:
-    - STRUCTURIZR_WORKSPACE_FILENAME=workspace.dsl
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:8080"]
-    interval: 30s
-    timeout: 10s
-    retries: 3
 
 services:
   # =============================================================================
-  # Structurizr On-Premises (Promotion Target)
+  # Structurizr On-Premises (Promotion Target) - Always Running
   # =============================================================================
-  # This is the central repository where all workspaces are promoted to.
+  # Central repository where all workspaces are promoted to.
   # Access at: http://localhost:20000
   structurizr-onpremises:
     image: structurizr/onpremises:latest
@@ -41,70 +33,45 @@ services:
       start_period: 60s
 
   # =============================================================================
-  # Domain Workspaces (Structurizr Lite)
+  # Structurizr Lite (Optional - On-Demand Visual Editor)
   # =============================================================================
-  # Each domain gets its own Lite instance for local development.
-  # Changes are saved directly to the workspace.dsl files.
-
-  # Platform Domain - http://localhost:20100
-  structurizr-domain-platform:
-    <<: *structurizr-lite-defaults
-    container_name: structurizr-domain-platform
+  # Single Lite instance for visual editing when needed.
+  # By default, points to the current quarter's platform domain.
+  # For other workspaces, use ./scripts/lite.sh instead.
+  #
+  # Start with: nerdctl compose --profile lite up -d structurizr-lite
+  # Access at: http://localhost:20100
+  structurizr-lite:
+    image: structurizr/lite:latest
+    container_name: structurizr-lite
+    profiles:
+      - lite
     ports:
       - "20100:8080"
     volumes:
-      - ../workspaces/domains/platform:/usr/local/structurizr
-
-  # Orders Domain - http://localhost:20101
-  structurizr-domain-orders:
-    <<: *structurizr-lite-defaults
-    container_name: structurizr-domain-orders
-    ports:
-      - "20101:8080"
-    volumes:
-      - ../workspaces/domains/orders:/usr/local/structurizr
-
-  # Notifications Domain - http://localhost:20102
-  structurizr-domain-notifications:
-    <<: *structurizr-lite-defaults
-    container_name: structurizr-domain-notifications
-    ports:
-      - "20102:8080"
-    volumes:
-      - ../workspaces/domains/notifications:/usr/local/structurizr
-
-  # =============================================================================
-  # Perspective Workspaces (Stakeholder Views)
-  # =============================================================================
-  # Aggregate views for different stakeholder perspectives.
-
-  # Executive Perspective - http://localhost:20200
-  structurizr-perspective-executive:
-    <<: *structurizr-lite-defaults
-    container_name: structurizr-perspective-executive
-    ports:
-      - "20200:8080"
-    volumes:
-      - ../workspaces/perspectives/executive:/usr/local/structurizr
-
-  # Security Perspective - http://localhost:20201
-  structurizr-perspective-security:
-    <<: *structurizr-lite-defaults
-    container_name: structurizr-perspective-security
-    ports:
-      - "20201:8080"
-    volumes:
-      - ../workspaces/perspectives/security:/usr/local/structurizr
-
-  # Technical Perspective - http://localhost:20202
-  structurizr-perspective-technical:
-    <<: *structurizr-lite-defaults
-    container_name: structurizr-perspective-technical
-    ports:
-      - "20202:8080"
-    volumes:
-      - ../workspaces/perspectives/technical:/usr/local/structurizr
+      - ../workspaces/current/domains/platform:/usr/local/structurizr:rw
+    environment:
+      - STRUCTURIZR_WORKSPACE_FILENAME=workspace.dsl
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   structurizr-data:
     name: structurizr-onpremises-data
+
+# =============================================================================
+# Quick Reference
+# =============================================================================
+# For on-demand editing of specific workspaces, use the lite.sh script:
+#
+#   ./scripts/lite.sh platform              # Edit platform domain (current quarter)
+#   ./scripts/lite.sh orders                # Edit orders domain
+#   ./scripts/lite.sh executive perspective # Edit executive perspective
+#   ./scripts/lite.sh platform q1-2025      # Edit archived quarter
+#
+# This avoids running 7 Lite containers simultaneously.
+# =============================================================================

@@ -1,4 +1,9 @@
+# =============================================================================
 # Structurizr CI - Validate DSL files on every push/PR
+# =============================================================================
+# Validates all workspace DSL files in the current quarter directory.
+# Runs on every push and pull request that modifies workspace files.
+# =============================================================================
 name: CI - Validate Workspaces
 
 on:
@@ -18,40 +23,50 @@ on:
 
 jobs:
   # =============================================================================
-  # Discover Domains
+  # Discover Workspaces
   # =============================================================================
   discover:
-    name: Discover Domains
+    name: Discover Workspaces
     runs-on: [self-hosted, structurizr, nerdctl]
     outputs:
-      domains: ${{ steps.find-domains.outputs.domains }}
+      domains: ${{ steps.find-workspaces.outputs.domains }}
+      perspectives: ${{ steps.find-workspaces.outputs.perspectives }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find domain workspaces
-        id: find-domains
+      - name: Find workspaces
+        id: find-workspaces
         run: |
-          # Discover all domains with workspace.dsl files
-          domains=$(find workspaces/domains -name "workspace.dsl" -type f | \
+          # Find all domains in current quarter
+          domains=$(find workspaces/current/domains -name "workspace.dsl" -type f 2>/dev/null | \
             xargs -I {} dirname {} | \
             xargs -I {} basename {} | \
-            jq -R -s -c 'split("\n") | map(select(length > 0))')
+            jq -R -s -c 'split("\n") | map(select(length > 0))' || echo '[]')
+
+          # Find all perspectives in current quarter
+          perspectives=$(find workspaces/current/perspectives -name "workspace.dsl" -type f 2>/dev/null | \
+            xargs -I {} dirname {} | \
+            xargs -I {} basename {} | \
+            jq -R -s -c 'split("\n") | map(select(length > 0))' || echo '[]')
+
           echo "domains=$domains" >> $GITHUB_OUTPUT
+          echo "perspectives=$perspectives" >> $GITHUB_OUTPUT
           echo "Discovered domains: $domains"
+          echo "Discovered perspectives: $perspectives"
 
   # =============================================================================
-  # Validate Domains (Matrix Strategy)
+  # Validate Domains
   # =============================================================================
-  validate:
-    name: Validate ${{ matrix.domain }}
+  validate-domains:
+    name: Validate Domain - ${{ matrix.domain }}
     needs: discover
+    if: needs.discover.outputs.domains != '[]'
     runs-on: [self-hosted, structurizr, nerdctl]
     strategy:
       matrix:
         domain: ${{ fromJson(needs.discover.outputs.domains) }}
       fail-fast: false
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -60,20 +75,48 @@ jobs:
         env:
           JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
         run: |
-          echo "Validating ${{ matrix.domain }} workspace..."
+          echo "Validating ${{ matrix.domain }} domain workspace..."
           nerdctl run --rm \
             -v "${{ github.workspace }}:/workspaces:ro" \
             -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
             structurizr/cli:latest \
             validate \
-            -workspace /workspaces/workspaces/domains/${{ matrix.domain }}/workspace.dsl
+            -workspace /workspaces/workspaces/current/domains/${{ matrix.domain }}/workspace.dsl
+
+  # =============================================================================
+  # Validate Perspectives
+  # =============================================================================
+  validate-perspectives:
+    name: Validate Perspective - ${{ matrix.perspective }}
+    needs: discover
+    if: needs.discover.outputs.perspectives != '[]'
+    runs-on: [self-hosted, structurizr, nerdctl]
+    strategy:
+      matrix:
+        perspective: ${{ fromJson(needs.discover.outputs.perspectives) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate ${{ matrix.perspective }} workspace
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          echo "Validating ${{ matrix.perspective }} perspective workspace..."
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest \
+            validate \
+            -workspace /workspaces/workspaces/current/perspectives/${{ matrix.perspective }}/workspace.dsl
 
   # =============================================================================
   # Validation Summary
   # =============================================================================
   summary:
     name: Validation Summary
-    needs: [discover, validate]
+    needs: [discover, validate-domains, validate-perspectives]
     runs-on: [self-hosted, structurizr, nerdctl]
     if: always()
     steps:
@@ -84,10 +127,19 @@ jobs:
           echo "======================================"
           echo ""
           echo "Domains validated: ${{ needs.discover.outputs.domains }}"
+          echo "Perspectives validated: ${{ needs.discover.outputs.perspectives }}"
           echo ""
-          if [ "${{ needs.validate.result }}" = "success" ]; then
-            echo "Result: All workspaces validated successfully!"
-          else
-            echo "Result: Some workspaces failed validation"
-            exit 1
+
+          domain_result="${{ needs.validate-domains.result }}"
+          perspective_result="${{ needs.validate-perspectives.result }}"
+
+          # Success if both are success or skipped (skipped means no workspaces of that type)
+          if [ "$domain_result" = "success" ] || [ "$domain_result" = "skipped" ]; then
+            if [ "$perspective_result" = "success" ] || [ "$perspective_result" = "skipped" ]; then
+              echo "Result: All workspaces validated successfully!"
+              exit 0
+            fi
           fi
+
+          echo "Result: Some workspaces failed validation"
+          exit 1
