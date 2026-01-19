@@ -1,0 +1,110 @@
+# Structurizr DevOps - Full Local Stack
+# Start with: nerdctl compose up -d
+# Stop with: nerdctl compose down
+
+# =============================================================================
+# YAML Anchors for DRY Configuration
+# =============================================================================
+x-structurizr-lite: &structurizr-lite-defaults
+  image: structurizr/lite:latest
+  restart: unless-stopped
+  environment:
+    - STRUCTURIZR_WORKSPACE_FILENAME=workspace.dsl
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+
+services:
+  # =============================================================================
+  # Structurizr On-Premises (Promotion Target)
+  # =============================================================================
+  # This is the central repository where all workspaces are promoted to.
+  # Access at: http://localhost:20000
+  structurizr-onpremises:
+    image: structurizr/onpremises:latest
+    container_name: structurizr-onpremises
+    ports:
+      - "20000:8080"
+    volumes:
+      - ./onpremises/structurizr.properties:/usr/local/structurizr/structurizr.properties:ro
+      - structurizr-data:/usr/local/structurizr/data
+    environment:
+      - JAVA_OPTS=-Xmx512m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # =============================================================================
+  # Domain Workspaces (Structurizr Lite)
+  # =============================================================================
+  # Each domain gets its own Lite instance for local development.
+  # Changes are saved directly to the workspace.dsl files.
+
+  # Platform Domain - http://localhost:20100
+  structurizr-domain-platform:
+    <<: *structurizr-lite-defaults
+    container_name: structurizr-domain-platform
+    ports:
+      - "20100:8080"
+    volumes:
+      - ../workspaces/domains/platform:/usr/local/structurizr
+
+  # Orders Domain - http://localhost:20101
+  structurizr-domain-orders:
+    <<: *structurizr-lite-defaults
+    container_name: structurizr-domain-orders
+    ports:
+      - "20101:8080"
+    volumes:
+      - ../workspaces/domains/orders:/usr/local/structurizr
+
+  # Notifications Domain - http://localhost:20102
+  structurizr-domain-notifications:
+    <<: *structurizr-lite-defaults
+    container_name: structurizr-domain-notifications
+    ports:
+      - "20102:8080"
+    volumes:
+      - ../workspaces/domains/notifications:/usr/local/structurizr
+
+  # =============================================================================
+  # Perspective Workspaces (Stakeholder Views)
+  # =============================================================================
+  # Aggregate views for different stakeholder perspectives.
+
+  # Executive Perspective - http://localhost:20200
+  structurizr-perspective-executive:
+    <<: *structurizr-lite-defaults
+    container_name: structurizr-perspective-executive
+    ports:
+      - "20200:8080"
+    volumes:
+      - ../workspaces/perspectives/executive:/usr/local/structurizr
+
+  # Security Perspective - http://localhost:20201
+  structurizr-perspective-security:
+    <<: *structurizr-lite-defaults
+    container_name: structurizr-perspective-security
+    ports:
+      - "20201:8080"
+    volumes:
+      - ../workspaces/perspectives/security:/usr/local/structurizr
+
+  # Technical Perspective - http://localhost:20202
+  structurizr-perspective-technical:
+    <<: *structurizr-lite-defaults
+    container_name: structurizr-perspective-technical
+    ports:
+      - "20202:8080"
+    volumes:
+      - ../workspaces/perspectives/technical:/usr/local/structurizr
+
+volumes:
+  structurizr-data:
+    name: structurizr-onpremises-data

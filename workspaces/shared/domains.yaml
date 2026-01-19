@@ -1,0 +1,101 @@
+# =============================================================================
+# Domain Registry - Catalog of Business Domains
+# =============================================================================
+# This file defines all business domains in the architecture, their metadata,
+# and configuration for the DevOps pipeline.
+#
+# Adding a new domain:
+#   1. Add entry below with required fields
+#   2. Create workspace directory: workspaces/domains/{name}/
+#   3. Run: ./scripts/domain-create.sh {name} (optional scaffolding)
+#   4. Configure GitHub secrets for the domain
+# =============================================================================
+
+domains:
+  # ---------------------------------------------------------------------------
+  # Platform Domain - Core Infrastructure
+  # ---------------------------------------------------------------------------
+  platform:
+    name: Platform Domain
+    description: Core platform infrastructure and shared services
+    owner: Platform Team
+    port: 20100
+    workspace_file: workspace.dsl
+    color: "#1168bd"
+    tags:
+      - infrastructure
+      - core
+    dependencies: []
+
+  # ---------------------------------------------------------------------------
+  # Orders Domain - Order Management
+  # ---------------------------------------------------------------------------
+  orders:
+    name: Orders Domain
+    description: Order management and fulfillment business domain
+    owner: Commerce Team
+    port: 20101
+    workspace_file: workspace.dsl
+    color: "#2e7d32"
+    tags:
+      - commerce
+      - transactions
+    dependencies:
+      - platform
+
+  # ---------------------------------------------------------------------------
+  # Notifications Domain - Messaging
+  # ---------------------------------------------------------------------------
+  notifications:
+    name: Notifications Domain
+    description: Notification and messaging business domain
+    owner: Engagement Team
+    port: 20102
+    workspace_file: workspace.dsl
+    color: "#7b1fa2"
+    tags:
+      - messaging
+      - engagement
+    dependencies:
+      - platform
+
+# =============================================================================
+# Perspectives - Stakeholder Views
+# =============================================================================
+# These aggregate multiple domains into stakeholder-specific views
+
+perspectives:
+  executive:
+    name: Executive Dashboard
+    description: High-level business architecture view for leadership
+    port: 20200
+    includes:
+      - platform
+      - orders
+      - notifications
+
+  security:
+    name: Security Architecture
+    description: Security-focused view showing trust boundaries and data flows
+    port: 20201
+    includes:
+      - platform
+      - orders
+      - notifications
+
+  technical:
+    name: Technical Architecture
+    description: Developer-focused view with implementation details
+    port: 20202
+    includes:
+      - platform
+      - orders
+      - notifications
+
+# =============================================================================
+# Port Scheme
+# =============================================================================
+# On-Premises:    20000
+# Domains:        20100-20199
+# Perspectives:   20200-20299
+# Reserved:       20300-20399 (future use)

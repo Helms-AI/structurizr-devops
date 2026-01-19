@@ -1,0 +1,152 @@
+# Structurizr Promotion - Production Environment
+# Manual workflow with confirmation required
+name: Promote to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: 'Domain to promote'
+        required: true
+        type: choice
+        options:
+          - all
+          - platform
+          - orders
+          - notifications
+      confirmation:
+        description: 'Type PRODUCTION to confirm'
+        required: true
+        type: string
+
+env:
+  STRUCTURIZR_URL: ${{ secrets.STRUCTURIZR_URL }}
+
+jobs:
+  # =============================================================================
+  # Verify Confirmation
+  # =============================================================================
+  verify:
+    name: Verify Confirmation
+    runs-on: [self-hosted, structurizr, nerdctl]
+    outputs:
+      confirmed: ${{ steps.check.outputs.confirmed }}
+      domains: ${{ steps.resolve.outputs.domains }}
+
+    steps:
+      - name: Check confirmation
+        id: check
+        run: |
+          if [ "${{ inputs.confirmation }}" = "PRODUCTION" ]; then
+            echo "confirmed=true" >> $GITHUB_OUTPUT
+            echo "Production deployment confirmed"
+          else
+            echo "confirmed=false" >> $GITHUB_OUTPUT
+            echo "Confirmation failed. You must type 'PRODUCTION' to confirm."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve domains to promote
+        id: resolve
+        run: |
+          if [ "${{ inputs.domain }}" = "all" ]; then
+            # Discover all domains
+            domains=$(find workspaces/domains -name "workspace.dsl" -type f | \
+              xargs -I {} dirname {} | \
+              xargs -I {} basename {} | \
+              jq -R -s -c 'split("\n") | map(select(length > 0))')
+          else
+            # Single domain
+            domains='["${{ inputs.domain }}"]'
+          fi
+          echo "domains=$domains" >> $GITHUB_OUTPUT
+          echo "Domains to promote: $domains"
+
+  # =============================================================================
+  # Validate Before Promotion
+  # =============================================================================
+  validate:
+    name: Validate ${{ matrix.domain }}
+    needs: verify
+    runs-on: [self-hosted, structurizr, nerdctl]
+    strategy:
+      matrix:
+        domain: ${{ fromJson(needs.verify.outputs.domains) }}
+      fail-fast: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate workspace
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          echo "Validating ${{ matrix.domain }} workspace..."
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest \
+            validate \
+            -workspace /workspaces/workspaces/domains/${{ matrix.domain }}/workspace.dsl
+
+  # =============================================================================
+  # Promote Domains
+  # =============================================================================
+  promote:
+    name: Promote ${{ matrix.domain }}
+    needs: [verify, validate]
+    runs-on: [self-hosted, structurizr, nerdctl]
+    environment: production
+    strategy:
+      matrix:
+        domain: ${{ fromJson(needs.verify.outputs.domains) }}
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get domain credentials
+        id: creds
+        run: |
+          # Map domain name to uppercase for secret lookup
+          DOMAIN_UPPER=$(echo "${{ matrix.domain }}" | tr '[:lower:]-' '[:upper:]_')
+          echo "domain_upper=$DOMAIN_UPPER" >> $GITHUB_OUTPUT
+
+      - name: Promote ${{ matrix.domain }} workspace to Production
+        uses: aidmax/structurizr-cli-action@v1.30.0
+        with:
+          id: ${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_ID', steps.creds.outputs.domain_upper)] }}
+          key: ${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_KEY', steps.creds.outputs.domain_upper)] }}
+          secret: ${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_SECRET', steps.creds.outputs.domain_upper)] }}
+          workspace: workspaces/domains/${{ matrix.domain }}/workspace.dsl
+          url: ${{ secrets.STRUCTURIZR_URL }}
+
+      - name: Promotion summary
+        run: |
+          echo "PRODUCTION: ${{ matrix.domain }} domain promoted"
+
+  # =============================================================================
+  # Final Summary
+  # =============================================================================
+  summary:
+    name: Deployment Summary
+    needs: [verify, promote]
+    if: always()
+    runs-on: [self-hosted, structurizr, nerdctl]
+
+    steps:
+      - name: Production deployment summary
+        run: |
+          echo "=============================================="
+          echo "PRODUCTION DEPLOYMENT COMPLETE"
+          echo "=============================================="
+          echo ""
+          echo "Domain(s) promoted: ${{ inputs.domain }}"
+          echo "Deployed by: ${{ github.actor }}"
+          echo "Commit: ${{ github.sha }}"
+          echo ""
+          echo "View at: ${{ secrets.STRUCTURIZR_URL }}"

@@ -1,0 +1,168 @@
+# =============================================================================
+# Quarterly Architecture Snapshot
+# =============================================================================
+# Creates an immutable snapshot of the current architecture state:
+#   1. Validates all domain workspace DSL files
+#   2. Pushes to Structurizr workspace branches (e.g., q1-2025, q2-2025)
+#   3. Creates a git tag marking the quarterly snapshot
+#
+# The Structurizr workspace branch allows accessing historical architecture
+# via: http://localhost:20000/workspace/{id}/{quarter}
+#
+# Usage:
+#   - Run at the end of each quarter to preserve architecture state
+#   - Snapshots are immutable - use for compliance and historical review
+# =============================================================================
+name: Quarterly Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      quarter:
+        description: 'Quarter identifier (e.g., q1-2025, q2-2025)'
+        required: true
+        type: string
+      create_git_tag:
+        description: 'Create git tag for this snapshot'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  STRUCTURIZR_URL: ${{ secrets.STRUCTURIZR_URL }}
+
+jobs:
+  # ===========================================================================
+  # Discover and Validate Domains
+  # ===========================================================================
+  discover:
+    name: Discover Domains
+    runs-on: [self-hosted, structurizr, nerdctl]
+    outputs:
+      domains: ${{ steps.find-domains.outputs.domains }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find domain workspaces
+        id: find-domains
+        run: |
+          domains=$(find workspaces/domains -name "workspace.dsl" -type f | \
+            xargs -I {} dirname {} | \
+            xargs -I {} basename {} | \
+            jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "domains=$domains" >> $GITHUB_OUTPUT
+          echo "Discovered domains: $domains"
+
+  validate:
+    name: Validate ${{ matrix.domain }}
+    needs: discover
+    runs-on: [self-hosted, structurizr, nerdctl]
+    strategy:
+      matrix:
+        domain: ${{ fromJson(needs.discover.outputs.domains) }}
+      fail-fast: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate workspace
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest \
+            validate \
+            -workspace /workspaces/workspaces/domains/${{ matrix.domain }}/workspace.dsl
+
+  # ===========================================================================
+  # Create Structurizr Workspace Snapshots
+  # ===========================================================================
+  snapshot:
+    name: Snapshot ${{ matrix.domain }}
+    needs: [discover, validate]
+    runs-on: [self-hosted, structurizr, nerdctl]
+    strategy:
+      matrix:
+        domain: ${{ fromJson(needs.discover.outputs.domains) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get domain credentials
+        id: creds
+        run: |
+          DOMAIN_UPPER=$(echo "${{ matrix.domain }}" | tr '[:lower:]-' '[:upper:]_')
+          echo "domain_upper=$DOMAIN_UPPER" >> $GITHUB_OUTPUT
+
+      - name: Push to Structurizr branch
+        env:
+          JAVA_SSL_OPTS: "-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=false"
+        run: |
+          echo "Creating snapshot for ${{ matrix.domain }} domain: ${{ inputs.quarter }}"
+          nerdctl run --rm \
+            -v "${{ github.workspace }}:/workspaces:ro" \
+            -e JAVA_TOOL_OPTIONS="$JAVA_SSL_OPTS" \
+            structurizr/cli:latest push \
+            -url "${{ secrets.STRUCTURIZR_URL }}" \
+            -id "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_ID', steps.creds.outputs.domain_upper)] }}" \
+            -key "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_KEY', steps.creds.outputs.domain_upper)] }}" \
+            -secret "${{ secrets[format('STRUCTURIZR_{0}_WORKSPACE_SECRET', steps.creds.outputs.domain_upper)] }}" \
+            -branch "${{ inputs.quarter }}" \
+            -workspace /workspaces/workspaces/domains/${{ matrix.domain }}/workspace.dsl
+          echo "${{ matrix.domain }} domain snapshot created: ${{ inputs.quarter }}"
+
+  # ===========================================================================
+  # Create Git Tag
+  # ===========================================================================
+  create-tag:
+    name: Create Git Tag
+    needs: [discover, snapshot]
+    runs-on: [self-hosted, structurizr, nerdctl]
+    if: ${{ inputs.create_git_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        run: |
+          TAG_NAME="${{ inputs.quarter }}-final"
+          echo "Creating git tag: $TAG_NAME"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG_NAME" -m "Quarterly architecture snapshot: ${{ inputs.quarter }}"
+          git push origin "$TAG_NAME"
+
+          echo "Git tag created: $TAG_NAME"
+
+  # ===========================================================================
+  # Summary
+  # ===========================================================================
+  summary:
+    name: Snapshot Summary
+    needs: [discover, snapshot, create-tag]
+    if: always()
+    runs-on: [self-hosted, structurizr, nerdctl]
+    steps:
+      - name: Print summary
+        run: |
+          echo "=============================================="
+          echo "Quarterly Snapshot Complete: ${{ inputs.quarter }}"
+          echo "=============================================="
+          echo ""
+          echo "Domains snapshotted: ${{ needs.discover.outputs.domains }}"
+          echo ""
+          if [ "${{ inputs.create_git_tag }}" = "true" ]; then
+            echo "Git Tag: ${{ inputs.quarter }}-final"
+          fi
+          echo ""
+          echo "To access historical architecture:"
+          echo "  Git:        git checkout ${{ inputs.quarter }}-final"
+          echo "  Structurizr: Navigate to workspace branch URL"
