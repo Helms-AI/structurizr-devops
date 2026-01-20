@@ -1,5 +1,5 @@
 lite_port: 20100
-current_workspace: q2-2026
+current_workspace: q1-2026
 workspaces:
   q1-2026:
     name: Q1 2026
@@ -7,14 +7,16 @@ workspaces:
     status: active
     workspace_file: workspace.dsl
     workspace_id: 1
-    api_key: 1452e23e-daa6-4d83-b1c5-05945ebedca0
-    api_secret: 9f4d3033-4056-4640-801b-cdca6b06d370
+    api_key: 7638747d-aa11-4969-a11f-1f473826c153
+    api_secret: e0ed78eb-ca4a-40e1-9c90-badb7e0fdffc
   q2-2026:
     name: Q2 2026
     description: Q2 2026 architecture workspace
+    branch: q2-2026
     status: active
     workspace_file: workspace.dsl
     workspace_id: 2
-    api_key: d0eb0ccd-f64a-4ef0-9627-7c1ae6940472
-    api_secret: 738574c6-de64-45ea-bc36-d2631ac53629
     parent: q1-2026
+    api_key: 8a505347-9c5c-4715-a8bb-ffae18d88a7b
+    api_secret: 2669bd1b-c309-406d-bd85-b8d7df5e907d
+    merge_base: 547f9ecfd4f8d0c9
