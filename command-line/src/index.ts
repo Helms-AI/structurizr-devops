@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { registerValidateCommand } from './commands/validate';
-import { registerPromoteCommand } from './commands/promote';
+import { registerPromoteCommand } from './commands/workspace-promote';
 import { registerWorkspaceInitCommand } from './commands/workspace-init';
 import { registerWorkspaceCreateCommand } from './commands/workspace-create';
 import { registerWorkspaceDemoteCommand } from './commands/workspace-demote';
@@ -34,10 +34,10 @@ program
 
 // Core commands
 registerValidateCommand(program);
-registerPromoteCommand(program);
 registerListCommand(program);
 
 // Workspace commands
+registerPromoteCommand(program);
 registerWorkspaceInitCommand(program);
 registerWorkspaceCreateCommand(program);
 registerWorkspaceDemoteCommand(program);
