@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { registerValidateCommand } from './commands/validate';
+import { registerValidateCommand } from './commands/workspace-validate';
 import { registerPromoteCommand } from './commands/workspace-promote';
 import { registerWorkspaceInitCommand } from './commands/workspace-init';
 import { registerWorkspaceCreateCommand } from './commands/workspace-create';
@@ -11,7 +11,7 @@ import { registerQuarterSnapshotCommand } from './commands/quarter-snapshot';
 import { registerQuarterSwitchCommand } from './commands/quarter-switch';
 import { registerQuarterNewCommand } from './commands/quarter-new';
 import { registerAdminGenerateKeyCommand } from './commands/admin-generate-key';
-import { registerListCommand } from './commands/list';
+import { registerListCommand } from './commands/workspace-list';
 import { registerSecretsListCommand } from './commands/secrets-list';
 import { registerSecretsGetCommand } from './commands/secrets-get';
 import { registerSecretsSetCommand } from './commands/secrets-set';
@@ -32,11 +32,9 @@ program
   .description('CLI tool for managing Structurizr DevOps operations')
   .version('2.0.0');
 
-// Core commands
-registerValidateCommand(program);
-registerListCommand(program);
-
 // Workspace commands
+registerListCommand(program);
+registerValidateCommand(program);
 registerPromoteCommand(program);
 registerWorkspaceInitCommand(program);
 registerWorkspaceCreateCommand(program);
