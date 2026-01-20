@@ -20,49 +20,9 @@ import {
 } from '../lib/quarters';
 import { setEnvValue, getEnvFilePath } from '../lib/dotenv';
 import { logger } from '../lib/logger';
+import { createAdminClient, isStructurizrApiError } from '../lib/structurizr';
 import { normalizeEnvironment } from '../types';
 import type { WorkspaceCredentials, Config } from '../types';
-
-interface CreateWorkspaceResponse {
-  id?: number;
-  workspaceId?: number;
-  apiKey?: string;
-  key?: string;
-  apiSecret?: string;
-  secret?: string;
-}
-
-/**
- * Create workspace via Structurizr On-Premises Admin API
- */
-async function createWorkspaceViaApi(
-  url: string,
-  apiKey: string
-): Promise<WorkspaceCredentials> {
-  const baseUrl = url.replace('/api', '');
-  const endpoint = `${baseUrl}/api/workspace`;
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'X-Authorization': apiKey,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-
-  const data = (await response.json()) as CreateWorkspaceResponse;
-
-  return {
-    id: String(data.id || data.workspaceId || ''),
-    apiKey: data.apiKey || data.key || '',
-    apiSecret: data.apiSecret || data.secret || '',
-  };
-}
 
 /**
  * Update registry.yaml with workspace_id
@@ -193,38 +153,49 @@ export function registerPromoteCommand(program: Command): void {
         const initSpinner = ora('Creating workspace via Admin API...').start();
 
         try {
-          const newCredentials = await createWorkspaceViaApi(
-            targetUrl,
-            config.adminApiKey
-          );
+          // Create admin client and use it to create workspace
+          const adminClient = createAdminClient({
+            baseUrl: targetUrl.replace('/api', ''),
+            adminApiKey: config.adminApiKey,
+          });
+
+          const newCredentials = await adminClient.createWorkspace();
 
           initSpinner.succeed('Workspace created!');
           logger.blank();
 
           // Save credentials to .env
-          workspaceId = newCredentials.id;
-          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_ID', newCredentials.id);
+          const newWorkspaceId = String(newCredentials.id);
+          workspaceId = newWorkspaceId;
+          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_ID', newWorkspaceId);
           setEnvValue(config, 'STRUCTURIZR_WORKSPACE_KEY', newCredentials.apiKey);
           setEnvValue(config, 'STRUCTURIZR_WORKSPACE_SECRET', newCredentials.apiSecret);
 
           logger.success(`Credentials saved to ${getEnvFilePath(config)}`);
 
           // Update registry.yaml
-          if (updateRegistryWithWorkspaceId(config, newCredentials.id)) {
-            logger.success(`workspace_id: ${newCredentials.id} added to registry.yaml`);
+          if (updateRegistryWithWorkspaceId(config, newWorkspaceId)) {
+            logger.success(`workspace_id: ${newWorkspaceId} added to registry.yaml`);
           }
           logger.blank();
 
           // Update credentials for promotion
           credentials = {
-            workspaceId: newCredentials.id,
+            workspaceId: newWorkspaceId,
             workspaceKey: newCredentials.apiKey,
             workspaceSecret: newCredentials.apiSecret,
           };
 
         } catch (error) {
           initSpinner.fail('Failed to create workspace');
-          logger.error(error instanceof Error ? error.message : String(error));
+          if (isStructurizrApiError(error)) {
+            logger.error(`API Error: ${error.message}`);
+            if (error.statusCode) {
+              logger.info(`Status code: ${error.statusCode}`);
+            }
+          } else {
+            logger.error(error instanceof Error ? error.message : String(error));
+          }
           process.exit(1);
         }
       } else if (needsInit && options?.init && !isLocal) {

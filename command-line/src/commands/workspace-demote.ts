@@ -14,6 +14,7 @@ import {
 } from '../lib/github';
 import { deleteEnvValue, getEnvFilePath, listEnvValues, envFileExists } from '../lib/dotenv';
 import { logger } from '../lib/logger';
+import { createAdminClient, isStructurizrApiError, isNotFoundError } from '../lib/structurizr';
 import { normalizeEnvironment } from '../types';
 
 /**
@@ -25,26 +26,24 @@ async function deleteWorkspaceViaApi(
   adminApiKey: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const apiUrl = baseUrl.replace(/\/api\/?$/, '');
-    const endpoint = `${apiUrl}/api/workspace/${workspaceId}`;
-
-    const response = await fetch(endpoint, {
-      method: 'DELETE',
-      headers: {
-        'X-Authorization': adminApiKey,
-      },
+    const adminClient = createAdminClient({
+      baseUrl: baseUrl.replace(/\/api\/?$/, ''),
+      adminApiKey,
     });
 
-    if (response.ok) {
+    await adminClient.deleteWorkspace(parseInt(workspaceId, 10));
+    return { success: true };
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      // Workspace already deleted - treat as success
       return { success: true };
     }
-
-    const text = await response.text();
-    return {
-      success: false,
-      error: `HTTP ${response.status}: ${text || response.statusText}`,
-    };
-  } catch (error) {
+    if (isStructurizrApiError(error)) {
+      return {
+        success: false,
+        error: `API Error (${error.statusCode}): ${error.message}`,
+      };
+    }
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

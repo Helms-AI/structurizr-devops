@@ -138,3 +138,127 @@ export function normalizeEnvironment(env: string): Environment {
   if (lower === 'production') return 'Production';
   throw new Error(`Invalid environment: ${env}. Valid values: Local, Integration, Production`);
 }
+
+// =============================================================================
+// Structurizr API Types
+// =============================================================================
+
+/**
+ * Configuration for the Structurizr Admin API client.
+ */
+export interface AdminClientConfig {
+  /** Base URL of the Structurizr server (e.g., http://localhost:20000) */
+  baseUrl: string;
+  /** Admin API key for authentication */
+  adminApiKey: string;
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number;
+}
+
+/**
+ * Configuration for the Structurizr Workspace API client.
+ */
+export interface WorkspaceClientConfig {
+  /** Base URL of the Structurizr server (e.g., http://localhost:20000) */
+  baseUrl: string;
+  /** Workspace ID */
+  workspaceId: number;
+  /** Workspace API key */
+  apiKey: string;
+  /** Workspace API secret */
+  apiSecret: string;
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number;
+}
+
+/**
+ * User access information for a workspace.
+ */
+export interface WorkspaceUser {
+  username: string;
+  role: 'ReadWrite' | 'ReadOnly';
+}
+
+/**
+ * Users configuration for a workspace.
+ */
+export interface WorkspaceUsers {
+  readWrite: string[];
+  readOnly: string[];
+}
+
+/**
+ * Workspace metadata returned by the Admin API.
+ */
+export interface WorkspaceMetadata {
+  id: number;
+  name: string;
+  description: string;
+  apiKey: string;
+  apiSecret: string;
+  publicUrl: string;
+  privateUrl: string;
+  shareableLink: string;
+  branches?: string[];
+  users?: WorkspaceUsers;
+  lastModifiedDate?: string;
+  lastModifiedUser?: string;
+  lastModifiedAgent?: string;
+  size?: number;
+}
+
+/**
+ * Response from creating a new workspace.
+ */
+export interface CreateWorkspaceResponse {
+  id: number;
+  apiKey: string;
+  apiSecret: string;
+}
+
+/**
+ * Branch information for a workspace.
+ */
+export interface BranchInfo {
+  name: string;
+  lastModifiedDate?: string;
+  lastModifiedUser?: string;
+}
+
+/**
+ * Lock status for a workspace.
+ */
+export interface LockStatus {
+  locked: boolean;
+  username?: string;
+  agent?: string;
+  date?: string;
+}
+
+/**
+ * Structurizr workspace model (simplified).
+ * Full workspace model is complex - this covers key fields.
+ */
+export interface StructurizrWorkspace {
+  id?: number;
+  name?: string;
+  description?: string;
+  version?: number;
+  revision?: number;
+  lastModifiedDate?: string;
+  lastModifiedUser?: string;
+  lastModifiedAgent?: string;
+  model?: Record<string, unknown>;
+  views?: Record<string, unknown>;
+  documentation?: Record<string, unknown>;
+  configuration?: Record<string, unknown>;
+}
+
+/**
+ * Response from workspace operations.
+ */
+export interface ApiResponse {
+  success: boolean;
+  message?: string;
+  revision?: number;
+}

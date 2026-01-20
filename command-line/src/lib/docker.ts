@@ -120,14 +120,12 @@ export async function pushWorkspace(
   const containerPath = workspacePath.replace(config.projectRoot, '/workspaces');
   const containerUrl = translateUrlForContainer(url);
 
-  logger.info(`Pushing to ${containerUrl}`);
+  // Always push to main workspace first to update name/description metadata
+  logger.info(`Pushing to ${containerUrl} (main)`);
   logger.keyValue('Workspace ID', workspaceId);
   logger.keyValue('Workspace file', containerPath);
-  if (branch) {
-    logger.keyValue('Branch', branch);
-  }
 
-  const args = [
+  const mainArgs = [
     'push',
     '-url',
     containerUrl,
@@ -141,20 +139,53 @@ export async function pushWorkspace(
     containerPath,
   ];
 
-  // Add branch parameter if specified
-  if (branch) {
-    args.push('-branch', branch);
-  }
-
-  const result = await runContainer({
+  const mainResult = await runContainer({
     image: 'structurizr/cli:latest',
-    args,
+    args: mainArgs,
     volumes: [{ host: config.projectRoot, container: '/workspaces', readonly: true }],
     config,
     stream: true,
   });
 
-  return result.exitCode === 0;
+  if (mainResult.exitCode !== 0) {
+    return false;
+  }
+
+  // If a branch is specified, also push to that branch for version isolation
+  if (branch && branch !== 'main') {
+    logger.blank();
+    logger.info(`Pushing to branch: ${branch}`);
+
+    const branchArgs = [
+      'push',
+      '-url',
+      containerUrl,
+      '-id',
+      workspaceId,
+      '-key',
+      key,
+      '-secret',
+      secret,
+      '-workspace',
+      containerPath,
+      '-branch',
+      branch,
+    ];
+
+    const branchResult = await runContainer({
+      image: 'structurizr/cli:latest',
+      args: branchArgs,
+      volumes: [{ host: config.projectRoot, container: '/workspaces', readonly: true }],
+      config,
+      stream: true,
+    });
+
+    if (branchResult.exitCode !== 0) {
+      logger.warn(`Branch push failed, but main workspace was updated successfully`);
+    }
+  }
+
+  return true;
 }
 
 export async function pushWorkspaceWithOptions(options: PushWorkspaceOptions): Promise<boolean> {
