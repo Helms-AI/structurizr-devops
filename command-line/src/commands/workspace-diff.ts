@@ -140,8 +140,11 @@ export function registerWorkspaceDiffCommand(program: Command): void {
       }
 
       // Compute diff
+      // Swap arguments: we want to show what target needs to match source
+      // "added" = items target needs to add (in source, not in target)
+      // "removed" = items target has extra (in target, not in source)
       const diffSpinner = ora('Computing diff...').start();
-      const diff = diffWorkspaces(sourceWorkspace, targetWorkspace);
+      const diff = diffWorkspaces(targetWorkspace, sourceWorkspace);
       diffSpinner.succeed('Diff computed');
       logger.blank();
 

@@ -85,3 +85,10 @@ export async function composeLogs(
   }
   return runCompose(config, args, { stream: options.stream });
 }
+
+export async function composeDownWithVolumes(
+  config: Config,
+  options: { stream?: boolean } = {}
+): Promise<ComposeResult> {
+  return runCompose(config, ['down', '-v'], { stream: options.stream });
+}

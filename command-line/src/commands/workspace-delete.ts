@@ -1,5 +1,7 @@
 import { Command } from 'commander';
 import ora from 'ora';
+import * as fs from 'fs';
+import * as path from 'path';
 import { loadConfig } from '../lib/config';
 import {
   loadRegistry,
@@ -50,7 +52,7 @@ export function registerWorkspaceDeleteCommand(program: Command): void {
     .description('Delete a workspace from Structurizr and remove from registry')
     .option('--all', 'Delete all workspaces')
     .option('--dry-run', 'Show what would be deleted without making changes')
-    .option('--keep-files', 'Keep the local workspace files (only delete from server)')
+    .option('--keep-files', 'Keep local workspace files (default: delete files)')
     .action(async (workspace?: string, options?: {
       all?: boolean;
       dryRun?: boolean;
@@ -179,7 +181,18 @@ export function registerWorkspaceDeleteCommand(program: Command): void {
             registry.current_workspace = remaining.length > 0 ? remaining[0] : null as unknown as string;
           }
 
-          spinner.succeed(`${w.name}: DELETED`);
+          // Delete local workspace files unless --keep-files is specified
+          if (!options?.keepFiles) {
+            const workspaceDir = path.join(config.workspacesDir, w.name);
+            if (fs.existsSync(workspaceDir)) {
+              fs.rmSync(workspaceDir, { recursive: true, force: true });
+              spinner.succeed(`${w.name}: DELETED (including local files)`);
+            } else {
+              spinner.succeed(`${w.name}: DELETED`);
+            }
+          } else {
+            spinner.succeed(`${w.name}: DELETED (local files preserved)`);
+          }
           deleted++;
         } else {
           spinner.fail(`${w.name}: FAILED - ${result.error}`);
@@ -204,10 +217,9 @@ export function registerWorkspaceDeleteCommand(program: Command): void {
         process.exit(1);
       } else {
         logger.success('Deletion completed!');
-        if (!options?.keepFiles) {
+        if (options?.keepFiles) {
           logger.blank();
-          logger.info('Note: Local workspace files are preserved');
-          logger.info('Delete manually with: rm -rf workspaces/<workspace>');
+          logger.info('Note: Local workspace files were preserved');
         }
       }
     });
