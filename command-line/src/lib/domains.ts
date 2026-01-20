@@ -270,18 +270,3 @@ export function toTitleCase(str: string): string {
     .join(' ');
 }
 
-/**
- * Determine the branch name for a quarter
- * - 'current' quarter maps to 'main' branch
- * - Specific quarters (e.g., 'q1-2025') map to their own branch
- */
-export function quarterToBranch(quarter: string, config: Config): string {
-  if (quarter === 'current') {
-    return 'main';
-  }
-  // If quarter matches the current quarter from config, use 'main'
-  if (quarter === config.currentQuarter) {
-    return 'main';
-  }
-  return quarter;
-}

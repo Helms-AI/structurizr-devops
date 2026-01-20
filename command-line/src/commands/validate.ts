@@ -13,7 +13,7 @@ import type { WorkspaceType } from '../types';
 
 export function registerValidateCommand(program: Command): void {
   program
-    .command('validate [workspace]')
+    .command('workspace:validate [workspace]')
     .description('Validate workspace(s) DSL')
     .option('-q, --quarter <quarter>', 'Quarter to validate (default: current)', 'current')
     .option('-t, --type <type>', 'Workspace type: domain or perspective (auto-detected if not specified)')

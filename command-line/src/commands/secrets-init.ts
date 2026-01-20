@@ -3,9 +3,18 @@ import ora from 'ora';
 import * as readline from 'readline';
 import { loadConfig } from '../lib/config';
 import { listAllWorkspaces } from '../lib/domains';
-import { checkGitHubCli, setSecret, listSecrets, generateSecretNames, getRepoPath } from '../lib/github';
+import {
+  checkGitHubCli,
+  setSecret,
+  setEnvironmentSecret,
+  listSecrets,
+  listEnvironmentSecrets,
+  generateSecretNames,
+  getRepoPath,
+} from '../lib/github';
 import { logger } from '../lib/logger';
 import type { Environment } from '../types';
+import { normalizeEnvironment } from '../types';
 
 async function prompt(question: string, defaultValue?: string): Promise<string> {
   const rl = readline.createInterface({
@@ -31,7 +40,7 @@ export function registerSecretsInitCommand(program: Command): void {
   program
     .command('secrets:init')
     .description('Interactive setup for GitHub Actions secrets')
-    .option('-e, --environment <env>', 'Environment to configure: integration or production')
+    .option('-e, --environment <env>', 'Environment to configure: Integration or Production')
     .option('--skip-urls', 'Skip URL configuration')
     .option('--skip-workspaces', 'Skip workspace credentials configuration')
     .action(async (options: { environment?: string; skipUrls?: boolean; skipWorkspaces?: boolean }) => {
@@ -39,6 +48,7 @@ export function registerSecretsInitCommand(program: Command): void {
 
       logger.header('GitHub Actions Secrets Setup');
       logger.info('This wizard will help you configure secrets for your CI/CD pipeline.');
+      logger.info('Secrets are stored per GitHub environment (Integration/Production).');
       logger.blank();
 
       // Check GitHub CLI
@@ -60,16 +70,26 @@ export function registerSecretsInitCommand(program: Command): void {
       }
       logger.blank();
 
-      // Get existing secrets
-      const existingSecrets = await listSecrets();
-      const existingNames = new Set(existingSecrets.map((s) => s.name));
+      // Get existing repo-level secrets
+      const existingRepoSecrets = await listSecrets();
+      const existingRepoNames = new Set(existingRepoSecrets.map((s) => s.name));
 
-      const results: Array<{ name: string; success: boolean }> = [];
+      const results: Array<{ name: string; env?: string; success: boolean }> = [];
 
       // Determine which environment(s) to configure
       let environments: Environment[] = [];
       if (options.environment) {
-        environments = [options.environment as Environment];
+        try {
+          const normalized = normalizeEnvironment(options.environment);
+          if (normalized === 'Local') {
+            logger.error('Use ./cli secrets:set -e local for local environment');
+            process.exit(1);
+          }
+          environments = [normalized];
+        } catch (error) {
+          logger.error(error instanceof Error ? error.message : String(error));
+          process.exit(1);
+        }
       } else {
         logger.subheader('Select Environment');
         logger.info('1. Integration (development/staging)');
@@ -89,19 +109,26 @@ export function registerSecretsInitCommand(program: Command): void {
       }
       logger.blank();
 
-      // Configure URL secrets
+      // Get existing env-level secrets for each environment
+      const existingEnvSecrets: Record<string, Set<string>> = {};
+      for (const env of environments) {
+        const envSecrets = await listEnvironmentSecrets(env);
+        existingEnvSecrets[env] = new Set(envSecrets.map((s) => s.name));
+      }
+
+      // Configure URL secrets (per environment)
       if (!options.skipUrls) {
         logger.subheader('Environment URLs');
+        logger.info('STRUCTURIZR_URL is stored per GitHub environment.');
+        logger.blank();
 
         for (const env of environments) {
-          const envLabel = env === 'Integration' ? 'Integration' : 'Production';
-          const secretName = env === 'Integration' ? 'STRUCTURIZR_URL_INT' : 'STRUCTURIZR_URL_PROD';
-          const exists = existingNames.has(secretName);
+          const exists = existingEnvSecrets[env]?.has('STRUCTURIZR_URL');
 
           if (exists) {
-            const update = await confirm(`${secretName} already exists. Update it?`);
+            const update = await confirm(`STRUCTURIZR_URL already exists in ${env}. Update it?`);
             if (!update) {
-              logger.info(`Skipping ${secretName}`);
+              logger.info(`Skipping STRUCTURIZR_URL for ${env}`);
               continue;
             }
           }
@@ -109,20 +136,20 @@ export function registerSecretsInitCommand(program: Command): void {
           const defaultUrl = env === 'Integration'
             ? 'http://localhost:20000/api'
             : '';
-          const url = await prompt(`${envLabel} Structurizr URL`, defaultUrl);
+          const url = await prompt(`${env} Structurizr URL`, defaultUrl);
 
           if (url) {
-            const setSpinner = ora(`Setting ${secretName}...`).start();
-            const success = await setSecret(secretName, url);
+            const setSpinner = ora(`Setting STRUCTURIZR_URL in ${env}...`).start();
+            const success = await setEnvironmentSecret('STRUCTURIZR_URL', url, env);
             if (success) {
-              setSpinner.succeed(`${secretName} set`);
-              results.push({ name: secretName, success: true });
+              setSpinner.succeed(`STRUCTURIZR_URL set in ${env}`);
+              results.push({ name: 'STRUCTURIZR_URL', env, success: true });
             } else {
-              setSpinner.fail(`Failed to set ${secretName}`);
-              results.push({ name: secretName, success: false });
+              setSpinner.fail(`Failed to set STRUCTURIZR_URL in ${env}`);
+              results.push({ name: 'STRUCTURIZR_URL', env, success: false });
             }
           } else {
-            logger.info(`Skipping ${secretName} (no value provided)`);
+            logger.info(`Skipping STRUCTURIZR_URL for ${env} (no value provided)`);
           }
         }
         logger.blank();
@@ -137,6 +164,8 @@ export function registerSecretsInitCommand(program: Command): void {
         } else {
           logger.subheader('Workspace Credentials');
           logger.info(`Found ${workspaces.length} workspace(s) to configure.`);
+          logger.info('Workspace IDs are stored at repository level.');
+          logger.info('API keys/secrets are stored per GitHub environment.');
           logger.blank();
 
           for (const workspace of workspaces) {
@@ -144,11 +173,11 @@ export function registerSecretsInitCommand(program: Command): void {
 
             const names = generateSecretNames(workspace.name);
 
-            // Workspace ID
+            // Workspace ID (repository level)
             if (workspace.workspaceId) {
-              const idExists = existingNames.has(names.workspaceId);
+              const idExists = existingRepoNames.has(names.workspaceId);
               if (!idExists) {
-                const setSpinner = ora(`Setting ${names.workspaceId}...`).start();
+                const setSpinner = ora(`Setting ${names.workspaceId} (repo level)...`).start();
                 const success = await setSecret(names.workspaceId, String(workspace.workspaceId));
                 if (success) {
                   setSpinner.succeed(`${names.workspaceId} = ${workspace.workspaceId}`);
@@ -158,71 +187,67 @@ export function registerSecretsInitCommand(program: Command): void {
                   results.push({ name: names.workspaceId, success: false });
                 }
               } else {
-                logger.info(`${names.workspaceId} already set`);
+                logger.info(`${names.workspaceId} already set (repo level)`);
               }
             } else {
               logger.warn(`No workspace_id in domains.yaml for ${workspace.name}`);
             }
 
-            // Credentials per environment
+            // Credentials per environment (environment level)
             for (const env of environments) {
-              const envSuffix = env === 'Integration' ? 'INT' : 'PROD';
-              const envLabel = env === 'Integration' ? 'Integration' : 'Production';
-
-              const keySecretName = env === 'Integration' ? names.workspaceKeyInt : names.workspaceKeyProd;
-              const secretSecretName = env === 'Integration' ? names.workspaceSecretInt : names.workspaceSecretProd;
+              const envSecretNames = existingEnvSecrets[env] || new Set();
 
               // API Key
-              const keyExists = existingNames.has(keySecretName);
+              const keyExists = envSecretNames.has(names.workspaceKey);
               if (keyExists) {
-                const update = await confirm(`${keySecretName} exists. Update?`);
+                const update = await confirm(`${names.workspaceKey} exists in ${env}. Update?`);
                 if (!update) {
-                  logger.info(`Skipping ${keySecretName}`);
+                  logger.info(`Skipping ${names.workspaceKey} for ${env}`);
                 } else {
-                  const key = await prompt(`${envLabel} API Key for ${workspace.name}`);
+                  const key = await prompt(`${env} API Key for ${workspace.name}`);
                   if (key) {
-                    const setSpinner = ora(`Setting ${keySecretName}...`).start();
-                    const success = await setSecret(keySecretName, key);
-                    setSpinner[success ? 'succeed' : 'fail'](`${keySecretName}`);
-                    results.push({ name: keySecretName, success });
+                    const setSpinner = ora(`Setting ${names.workspaceKey} in ${env}...`).start();
+                    const success = await setEnvironmentSecret(names.workspaceKey, key, env);
+                    setSpinner[success ? 'succeed' : 'fail'](`${names.workspaceKey} in ${env}`);
+                    results.push({ name: names.workspaceKey, env, success });
                   }
                 }
               } else {
-                const key = await prompt(`${envLabel} API Key for ${workspace.name}`);
+                const key = await prompt(`${env} API Key for ${workspace.name}`);
                 if (key) {
-                  const setSpinner = ora(`Setting ${keySecretName}...`).start();
-                  const success = await setSecret(keySecretName, key);
-                  setSpinner[success ? 'succeed' : 'fail'](`${keySecretName}`);
-                  results.push({ name: keySecretName, success });
+                  const setSpinner = ora(`Setting ${names.workspaceKey} in ${env}...`).start();
+                  const success = await setEnvironmentSecret(names.workspaceKey, key, env);
+                  setSpinner[success ? 'succeed' : 'fail'](`${names.workspaceKey} in ${env}`);
+                  results.push({ name: names.workspaceKey, env, success });
                 } else {
-                  logger.info(`Skipping ${keySecretName}`);
+                  logger.info(`Skipping ${names.workspaceKey} for ${env}`);
                 }
               }
 
               // API Secret
-              const secretExists = existingNames.has(secretSecretName);
+              const secretExists = envSecretNames.has(names.workspaceSecret);
               if (secretExists) {
-                const update = await confirm(`${secretSecretName} exists. Update?`);
+                const update = await confirm(`${names.workspaceSecret} exists in ${env}. Update?`);
                 if (!update) {
-                  logger.info(`Skipping ${secretSecretName}`);
+                  logger.info(`Skipping ${names.workspaceSecret} for ${env}`);
                 } else {
-                  const secret = await prompt(`${envLabel} API Secret for ${workspace.name}`);
+                  const secret = await prompt(`${env} API Secret for ${workspace.name}`);
                   if (secret) {
-                    const setSpinner = ora(`Setting ${secretSecretName}...`).start();
-                    const success = await setSecret(secretSecretName, secret);
-                    setSpinner[success ? 'succeed' : 'fail'](`${secretSecretName}`);
-                    results.push({ name: secretSecretName, success });
+                    const setSpinner = ora(`Setting ${names.workspaceSecret} in ${env}...`).start();
+                    const success = await setEnvironmentSecret(names.workspaceSecret, secret, env);
+                    setSpinner[success ? 'succeed' : 'fail'](`${names.workspaceSecret} in ${env}`);
+                    results.push({ name: names.workspaceSecret, env, success });
                   }
                 }
               } else {
-                const secret = await prompt(`${envLabel} API Secret for ${workspace.name}`);
+                const secret = await prompt(`${env} API Secret for ${workspace.name}`);
                 if (secret) {
-                  const setSpinner = ora(`Setting ${secretSecretName}...`).start();
-                  const success = await setSecret(secretSecretName, secret);
-                  setSpinner[success ? 'succeed' : 'fail'](`${secretSecretName}`);
-                  results.push({ name: secretSecretName, success });
+                  const setSpinner = ora(`Setting ${names.workspaceSecret} in ${env}...`).start();
+                  const success = await setEnvironmentSecret(names.workspaceSecret, secret, env);
+                  setSpinner[success ? 'succeed' : 'fail'](`${names.workspaceSecret} in ${env}`);
+                  results.push({ name: names.workspaceSecret, env, success });
                 } else {
-                  logger.info(`Skipping ${secretSecretName}`);
+                  logger.info(`Skipping ${names.workspaceSecret} for ${env}`);
                 }
               }
             }
@@ -245,7 +270,8 @@ export function registerSecretsInitCommand(program: Command): void {
       if (failed.length > 0) {
         logger.subheader('Failed');
         for (const result of failed) {
-          logger.error(`  ${result.name}`);
+          const envLabel = result.env ? ` (${result.env})` : '';
+          logger.error(`  ${result.name}${envLabel}`);
         }
         logger.blank();
       }
@@ -261,7 +287,7 @@ export function registerSecretsInitCommand(program: Command): void {
 
       logger.blank();
       logger.info('Verify with:');
-      logger.info('  ./cli secrets:list -e integration --check');
-      logger.info('  ./cli secrets:list -e production --check');
+      logger.info('  ./cli secrets:list -e Integration --check');
+      logger.info('  ./cli secrets:list -e Production --check');
     });
 }

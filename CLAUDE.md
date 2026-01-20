@@ -19,16 +19,16 @@ This is a DevOps pipeline for promoting Structurizr architecture workspaces from
 
 ## Workspace ID Mapping
 
-Each domain/perspective maps to a workspace ID on Structurizr On-Premises with branches per quarter:
+Each domain/perspective maps to a workspace ID on Structurizr On-Premises:
 
-| Workspace | Type | ID | Branches |
-|-----------|------|-----|----------|
-| platform | domain | 1 | main, q1-2025, q2-2025 |
-| orders | domain | 3 | main, q1-2025, q2-2025 |
-| notifications | domain | 5 | main, q1-2025, q2-2025 |
-| executive | perspective | 10 | main, q1-2025, q2-2025 |
-| security | perspective | 11 | main, q1-2025, q2-2025 |
-| technical | perspective | 12 | main, q1-2025, q2-2025 |
+| Workspace | Type | ID |
+|-----------|------|-----|
+| executive | perspective | 1 |
+| security | perspective | 2 |
+| technical | perspective | 3 |
+| platform | domain | 4 |
+| orders | domain | 5 |
+| notifications | domain | 6 |
 
 ## Common Commands
 
@@ -37,45 +37,37 @@ Each domain/perspective maps to a workspace ID on Structurizr On-Premises with b
 Use `./cli` from the project root (auto-builds on first run):
 
 ```bash
-# Validation
-./cli validate                          # Validate all workspaces in current quarter
-./cli validate platform                 # Validate specific workspace
-./cli validate -q q1-2025               # Validate workspaces in specific quarter
-./cli validate -t domain                # Validate only domains
-./cli validate --all                    # Validate all (domains + perspectives)
-
-# Promotion
-./cli promote platform                  # Promote to Integration (default)
-./cli promote platform -e Production    # Promote to Production
-./cli promote --all                     # Promote all workspaces
-./cli promote --all -e Production       # Promote all to Production
-./cli promote --all --dry-run           # Show what would be promoted
-./cli promote -q q1-2025                # Promote from specific quarter
-
 # Workspace Management
-./cli list                              # List all workspaces with IDs
-./cli list --quarters                   # List available quarters
+./cli workspace:list                    # List all workspaces with IDs
+./cli workspace:list --quarters         # List available quarters
+./cli workspace:validate                # Validate all workspaces in current quarter
+./cli workspace:validate platform       # Validate specific workspace
+./cli workspace:validate -q q1-2025     # Validate workspaces in specific quarter
+./cli workspace:validate -t domain      # Validate only domains
+./cli workspace:validate --all          # Validate all (domains + perspectives)
+./cli workspace:promote platform        # Promote to Local (default, localhost:20000)
+./cli workspace:promote platform -e integration   # Promote to Integration
+./cli workspace:promote platform -e production    # Promote to Production
+./cli workspace:promote --all           # Promote all workspaces
+./cli workspace:promote --all -e Production       # Promote all to Production
+./cli workspace:promote --all --dry-run # Show what would be promoted
+./cli workspace:promote -q q1-2025      # Promote from specific quarter
 ./cli workspace:create inventory        # Create new workspace
 ./cli workspace:init platform           # Initialize in On-Premises
 
 # Quarterly Operations
-./cli quarter:snapshot q2-2025          # Create quarterly snapshot directory
-./cli quarter:rollover q1-2025 q2-2025  # Create new quarter from existing
+./cli quarter:new q3-2025               # Create new quarter directory for planning
+./cli quarter:switch q3-2025            # Update current symlink to different quarter
+./cli quarter:snapshot q2-2025          # Create git tag for quarterly milestone
 
 # Secrets Management (requires -e environment flag)
-# Environments: local (uses .env), Integration, Production
+# Environments: Local (uses .env), Integration, Production (case-insensitive)
 ./cli secrets:list -e local             # List secrets from .env file
-./cli secrets:list -e Integration       # List GitHub secrets for Integration
-./cli secrets:list -e Production --check # Check missing secrets for Production
-./cli secrets:get NAME -e local         # Get a secret from .env file
-./cli secrets:get NAME -e Integration   # Check if secret exists (value not shown)
-./cli secrets:get NAME -e Integration --repo # Check repository-level secret
-./cli secrets:set NAME value -e local   # Set secret in .env file
-./cli secrets:set NAME value -e Integration        # Set environment-specific secret
-./cli secrets:set NAME value -e Integration --repo # Set repository-level secret
-./cli secrets:sync                      # Sync workspace IDs from domains.yaml
+./cli secrets:list -e integration       # List GitHub secrets for Integration
+./cli secrets:list -e production --check # Check missing secrets for Production
+./cli secrets:sync                      # Sync workspace IDs from domains.yaml (repo level)
 ./cli secrets:init                      # Interactive setup for all secrets
-./cli secrets:init -e Integration       # Interactive setup for specific env
+./cli secrets:init -e integration       # Interactive setup for specific env
 
 # Variables Management (requires -e environment flag)
 # Environments: local (uses .env), Integration, Production
@@ -91,21 +83,29 @@ Use `./cli` from the project root (auto-builds on first run):
 
 # Admin Operations
 ./cli admin:generate-key                # Generate API key
+
+# System Control
+./cli system:start                      # Start Structurizr On-Premises container
+./cli system:start --logs               # Start and follow container logs
+./cli system:stop                       # Stop Structurizr On-Premises container
+./cli system:restart                    # Restart Structurizr On-Premises container
+./cli system:logs                       # View container logs
+./cli system:logs -f                    # Follow container logs
 ```
 
 ### Local Environment
 ```bash
-# Start On-Premises (always available)
-cd containers && nerdctl compose up -d
+# Start On-Premises (recommended: use CLI)
+./cli system:start                      # Start container
+./cli system:start --logs               # Start and follow logs
+./cli system:logs -f                    # Follow logs anytime
 
 # Start Lite for editing (on-demand)
 ./scripts/lite.sh platform              # Edit platform workspace
 ./scripts/lite.sh orders q2-2025        # Edit orders in specific quarter
 ./scripts/lite.sh executive current perspective  # Edit perspective
 
-# Container management
-cd containers && nerdctl compose down
-cd containers && nerdctl compose logs -f structurizr-onpremises
+# Container management (alternative: direct compose commands)
 cd containers && nerdctl compose ps
 ```
 
@@ -120,15 +120,16 @@ Local Development:
 CI/CD Pipeline:
   GitHub Actions (self-hosted runner with nerdctl)
                 ↓
-  Structurizr On-Premises (:20000)  →  Promoted workspaces with branches
+  Structurizr On-Premises (:20000)  →  Promoted workspaces
 ```
 
 **Deployment Flow:**
 ```
 workspaces/
 ├── current -> q2-2025/           # Symlink to active quarter
-├── q2-2025/domains/platform/     # → workspace 1, branch "main"
-└── q1-2025/domains/platform/     # → workspace 1, branch "q1-2025"
+├── q2-2025/domains/platform/     # → workspace 4 (promoted)
+├── q1-2025/domains/platform/     # Archived (can promote for review)
+└── q3-2025/domains/platform/     # Future planning (can promote to preview)
 ```
 
 **Service Ports:**
@@ -179,7 +180,6 @@ workspaces/
 |----------|---------|--------|
 | `ci.yml` | Push/PR | Validates DSL files in current/ |
 | `promote.yml` | Push to develop / Manual | Promotes to integration (auto) or production (manual) |
-| `quarterly-snapshot.yml` | Manual | Creates directory snapshot + optional workspace branches + git tag |
 
 ## Key Files
 
@@ -212,55 +212,67 @@ workspace "Name" {
 
 ## Secrets and Variables Configuration
 
-Secrets and variables are managed via CLI (`./cli secrets:*` and `./cli env:*`).
+Secrets and variables are managed via CLI (`./cli secrets:*`).
 
 ### Environments
 
 | Environment | Storage | Description |
 |-------------|---------|-------------|
-| `local` | `containers/.env` | Local development credentials |
-| `Integration` | GitHub Actions | CI/CD integration/staging environment |
-| `Production` | GitHub Actions | Production environment |
+| `Local` | `containers/.env` | Local development (default for promote) |
+| `Integration` | GitHub Actions env | CI/CD integration/staging environment |
+| `Production` | GitHub Actions env | Production environment |
+
+Environment input is case-insensitive: `local`, `Local`, `LOCAL` all work.
+
+### Variable Naming (Simplified)
+
+All variables use the same simple names across environments (no `_INT`/`_PROD` suffixes):
+
+| Variable | Description | Storage |
+|----------|-------------|---------|
+| `STRUCTURIZR_URL` | Structurizr API URL | Per environment |
+| `STRUCTURIZR_{NAME}_WORKSPACE_ID` | Workspace ID | Repo level (GitHub) or .env (Local) |
+| `STRUCTURIZR_{NAME}_WORKSPACE_KEY` | API key | Per environment |
+| `STRUCTURIZR_{NAME}_WORKSPACE_SECRET` | API secret | Per environment |
 
 ### Local Environment (.env file)
 
 ```bash
 # containers/.env
 STRUCTURIZR_URL=http://localhost:20000/api
-STRUCTURIZR_PLATFORM_WORKSPACE_ID=1
+STRUCTURIZR_PLATFORM_WORKSPACE_ID=4
 STRUCTURIZR_PLATFORM_WORKSPACE_KEY=your-key
 STRUCTURIZR_PLATFORM_WORKSPACE_SECRET=your-secret
 ```
 
 ### GitHub Secrets (Integration/Production)
 
-Use `--repo` flag to set repository-level secrets (shared across all environments).
+Secrets are stored per GitHub environment with the same names:
 
 ```
-# Repository-level secrets (use --repo flag, shared across environments)
-STRUCTURIZR_URL_INT                    # Integration environment URL
-STRUCTURIZR_URL_PROD                   # Production environment URL
-STRUCTURIZR_{NAME}_WORKSPACE_ID        # Workspace ID (same across envs)
+# Repository-level (shared across environments)
+STRUCTURIZR_{NAME}_WORKSPACE_ID        # Workspace ID
 
-# Environment-specific secrets (default, per environment)
-STRUCTURIZR_{NAME}_WORKSPACE_KEY_INT   # API key for Integration
-STRUCTURIZR_{NAME}_WORKSPACE_KEY_PROD  # API key for Production
-STRUCTURIZR_{NAME}_WORKSPACE_SECRET_INT    # API secret for Integration
-STRUCTURIZR_{NAME}_WORKSPACE_SECRET_PROD   # API secret for Production
+# Per GitHub environment (Integration, Production)
+STRUCTURIZR_URL                        # API URL for that environment
+STRUCTURIZR_{NAME}_WORKSPACE_KEY       # API key
+STRUCTURIZR_{NAME}_WORKSPACE_SECRET    # API secret
 ```
 
 **Example for platform domain:**
 ```
-# Repository secrets
-STRUCTURIZR_PLATFORM_WORKSPACE_ID=1
+# Repository secrets (./cli secrets:sync)
+STRUCTURIZR_PLATFORM_WORKSPACE_ID=4
 
-# Integration environment secrets
-STRUCTURIZR_PLATFORM_WORKSPACE_KEY_INT=xxx
-STRUCTURIZR_PLATFORM_WORKSPACE_SECRET_INT=xxx
+# Integration environment secrets (./cli secrets:init -e Integration)
+STRUCTURIZR_URL=https://structurizr-int.example.com/api
+STRUCTURIZR_PLATFORM_WORKSPACE_KEY=xxx
+STRUCTURIZR_PLATFORM_WORKSPACE_SECRET=xxx
 
-# Production environment secrets
-STRUCTURIZR_PLATFORM_WORKSPACE_KEY_PROD=xxx
-STRUCTURIZR_PLATFORM_WORKSPACE_SECRET_PROD=xxx
+# Production environment secrets (./cli secrets:init -e Production)
+STRUCTURIZR_URL=https://structurizr.example.com/api
+STRUCTURIZR_PLATFORM_WORKSPACE_KEY=yyy
+STRUCTURIZR_PLATFORM_WORKSPACE_SECRET=yyy
 ```
 
 ## Prerequisites

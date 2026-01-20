@@ -4,26 +4,28 @@ import { getEnvValue, getEnvFilePath, envFileExists } from '../lib/dotenv';
 import { loadConfig } from '../lib/config';
 import { logger } from '../lib/logger';
 import type { Environment } from '../types';
+import { normalizeEnvironment } from '../types';
 
 export function registerSecretsGetCommand(program: Command): void {
   program
     .command('secrets:get <name>')
     .description('Get information about a secret (value not shown for security)')
-    .requiredOption('-e, --environment <env>', 'Environment: local, Integration, or Production')
+    .requiredOption('-e, --environment <env>', 'Environment: Local, Integration, or Production')
     .option('--repo', 'Check repository-level secret (shared across all environments)')
     .action(async (name: string, options: { environment: string; repo?: boolean }) => {
       const config = loadConfig();
-      const environment = options.environment as Environment;
 
-      // Validate environment
-      if (!['local', 'Integration', 'Production'].includes(environment)) {
-        logger.error(`Invalid environment: ${environment}`);
-        logger.info('Valid environments: local, Integration, Production');
+      // Normalize environment (case-insensitive)
+      let environment: Environment;
+      try {
+        environment = normalizeEnvironment(options.environment);
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 
       // Handle local environment - read from .env file
-      if (environment === 'local') {
+      if (environment === 'Local') {
         handleLocalSecretGet(config, name);
         return;
       }

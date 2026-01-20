@@ -6,26 +6,28 @@ import { checkGitHubCli, listSecrets, listEnvironmentSecrets, generateSecretName
 import { listEnvValues, getEnvFilePath, envFileExists } from '../lib/dotenv';
 import { logger } from '../lib/logger';
 import type { Environment } from '../types';
+import { normalizeEnvironment } from '../types';
 
 export function registerSecretsListCommand(program: Command): void {
   program
     .command('secrets:list')
     .description('List secrets for an environment')
-    .requiredOption('-e, --environment <env>', 'Environment: local, Integration, or Production')
+    .requiredOption('-e, --environment <env>', 'Environment: Local, Integration, or Production')
     .option('--check', 'Check which secrets are missing for each workspace')
     .action(async (options: { environment: string; check?: boolean }) => {
       const config = loadConfig();
-      const environment = options.environment as Environment;
 
-      // Validate environment
-      if (!['local', 'Integration', 'Production'].includes(environment)) {
-        logger.error(`Invalid environment: ${environment}`);
-        logger.info('Valid environments: local, Integration, Production');
+      // Normalize environment (case-insensitive)
+      let environment;
+      try {
+        environment = normalizeEnvironment(options.environment);
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 
       // Handle local environment - read from .env file
-      if (environment === 'local') {
+      if (environment === 'Local') {
         await handleLocalSecrets(config, options.check);
         return;
       }
@@ -112,7 +114,7 @@ async function handleLocalSecrets(config: ReturnType<typeof loadConfig>, check?:
 
   // Check mode
   if (check) {
-    logger.subheader('Workspace Secret Status (local)');
+    logger.subheader('Workspace Secret Status (Local)');
 
     const workspaces = listAllWorkspaces(config, 'current');
     const valueNames = new Set(values.map((v) => v.name));
@@ -120,7 +122,7 @@ async function handleLocalSecrets(config: ReturnType<typeof loadConfig>, check?:
     let hasIssues = false;
 
     // Check URL
-    const hasUrl = valueNames.has('STRUCTURIZR_URL') || valueNames.has('STRUCTURIZR_URL_INT');
+    const hasUrl = valueNames.has('STRUCTURIZR_URL');
     logger.info('Environment URL:');
     logger.info(`  ${hasUrl ? '\u2713' : '\u2717'} STRUCTURIZR_URL`);
     if (!hasUrl) hasIssues = true;
@@ -130,8 +132,8 @@ async function handleLocalSecrets(config: ReturnType<typeof loadConfig>, check?:
     for (const workspace of workspaces) {
       const names = generateSecretNames(workspace.name);
       const hasId = valueNames.has(names.workspaceId);
-      const hasKey = valueNames.has(names.workspaceKeyInt) || valueNames.has(`STRUCTURIZR_${workspace.name.toUpperCase().replace(/-/g, '_')}_WORKSPACE_KEY`);
-      const hasSecret = valueNames.has(names.workspaceSecretInt) || valueNames.has(`STRUCTURIZR_${workspace.name.toUpperCase().replace(/-/g, '_')}_WORKSPACE_SECRET`);
+      const hasKey = valueNames.has(names.workspaceKey);
+      const hasSecret = valueNames.has(names.workspaceSecret);
 
       const allGood = hasId && hasKey && hasSecret;
       const status = allGood ? '\u2713' : '\u2717';
@@ -143,11 +145,11 @@ async function handleLocalSecrets(config: ReturnType<typeof loadConfig>, check?:
         hasIssues = true;
       }
       if (!hasKey) {
-        logger.info(`    Missing: STRUCTURIZR_${workspace.name.toUpperCase().replace(/-/g, '_')}_WORKSPACE_KEY`);
+        logger.info(`    Missing: ${names.workspaceKey}`);
         hasIssues = true;
       }
       if (!hasSecret) {
-        logger.info(`    Missing: STRUCTURIZR_${workspace.name.toUpperCase().replace(/-/g, '_')}_WORKSPACE_SECRET`);
+        logger.info(`    Missing: ${names.workspaceSecret}`);
         hasIssues = true;
       }
     }
@@ -155,9 +157,9 @@ async function handleLocalSecrets(config: ReturnType<typeof loadConfig>, check?:
 
     if (hasIssues) {
       logger.warn('Some values are missing in .env');
-      logger.info('Use ./cli secrets:set <name> <value> -e local to add them');
+      logger.info('Use ./cli secrets:set <name> <value> -e Local to add them');
     } else {
-      logger.success('All workspace secrets for local are configured!');
+      logger.success('All workspace secrets for Local are configured!');
     }
   }
 }
@@ -251,30 +253,26 @@ async function handleGitHubSecrets(
     const workspaces = listAllWorkspaces(config, 'current');
     const repoSecretNames = new Set(repoSecrets.map((s) => s.name));
     const envSecretNames = new Set(envSecrets.map((s) => s.name));
-    const envSuffix = environment === 'Integration' ? 'INT' : 'PROD';
 
     let hasIssues = false;
 
-    // Check URL secret for this environment
-    const urlSecretName = `STRUCTURIZR_URL_${envSuffix}`;
-    const hasUrl = repoSecretNames.has(urlSecretName);
+    // Check URL secret for this environment (stored per environment)
+    const hasUrl = envSecretNames.has('STRUCTURIZR_URL');
     logger.info('Environment URL:');
-    logger.info(`  ${hasUrl ? '\u2713' : '\u2717'} ${urlSecretName}`);
+    logger.info(`  ${hasUrl ? '\u2713' : '\u2717'} STRUCTURIZR_URL (in ${environment})`);
     if (!hasUrl) hasIssues = true;
     logger.blank();
 
     // Check each workspace for this environment
     for (const workspace of workspaces) {
       const names = generateSecretNames(workspace.name);
+
+      // Workspace ID at repo level
       const hasId = repoSecretNames.has(names.workspaceId);
 
-      // Key and secret should be in environment secrets
-      const keyName = environment === 'Integration' ? names.workspaceKeyInt : names.workspaceKeyProd;
-      const secretName = environment === 'Integration' ? names.workspaceSecretInt : names.workspaceSecretProd;
-
-      // Check both repo-level and environment-level for keys/secrets
-      const hasKey = envSecretNames.has(keyName) || repoSecretNames.has(keyName);
-      const hasSecret = envSecretNames.has(secretName) || repoSecretNames.has(secretName);
+      // Key and secret in environment secrets (simplified names)
+      const hasKey = envSecretNames.has(names.workspaceKey);
+      const hasSecret = envSecretNames.has(names.workspaceSecret);
 
       const allGood = hasId && hasKey && hasSecret;
       const status = allGood ? '\u2713' : '\u2717';
@@ -282,15 +280,15 @@ async function handleGitHubSecrets(
       logger.info(`${status} ${workspace.name} (${workspace.type}):`);
 
       if (!hasId) {
-        logger.info(`    Missing: ${names.workspaceId} (repo secret)`);
+        logger.info(`    Missing: ${names.workspaceId} (repo level)`);
         hasIssues = true;
       }
       if (!hasKey) {
-        logger.info(`    Missing: ${keyName}`);
+        logger.info(`    Missing: ${names.workspaceKey} (in ${environment})`);
         hasIssues = true;
       }
       if (!hasSecret) {
-        logger.info(`    Missing: ${secretName}`);
+        logger.info(`    Missing: ${names.workspaceSecret} (in ${environment})`);
         hasIssues = true;
       }
     }

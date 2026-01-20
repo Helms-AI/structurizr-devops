@@ -10,12 +10,13 @@ import { listEnvValues, getEnvFilePath, envFileExists } from '../lib/dotenv';
 import { loadConfig } from '../lib/config';
 import { logger } from '../lib/logger';
 import type { Environment } from '../types';
+import { normalizeEnvironment } from '../types';
 
 export function registerVariablesListCommand(program: Command): void {
   program
     .command('variables:list')
     .description('List environment variables and secrets')
-    .option('-e, --environment <env>', 'Environment: local, Integration, or Production (required unless --environments)')
+    .option('-e, --environment <env>', 'Environment: Local, Integration, or Production (required unless --environments)')
     .option('--secrets', 'Also list environment secrets')
     .option('--environments', 'List available GitHub environments')
     .action(async (options?: {
@@ -32,25 +33,26 @@ export function registerVariablesListCommand(program: Command): void {
       }
 
       // Environment is required for listing variables
-      const environment = options?.environment as Environment | undefined;
-      if (!environment) {
+      if (!options?.environment) {
         logger.error('Environment is required');
-        logger.info('Use: ./cli variables:list -e local');
+        logger.info('Use: ./cli variables:list -e Local');
         logger.info('Use: ./cli variables:list -e Integration');
         logger.info('Use: ./cli variables:list -e Production');
         logger.info('Use: ./cli variables:list --environments (to list available GitHub environments)');
         process.exit(1);
       }
 
-      // Validate environment
-      if (!['local', 'Integration', 'Production'].includes(environment)) {
-        logger.error(`Invalid environment: ${environment}`);
-        logger.info('Valid environments: local, Integration, Production');
+      // Normalize environment (case-insensitive)
+      let environment: Environment;
+      try {
+        environment = normalizeEnvironment(options.environment);
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 
       // Handle local environment - read from .env file
-      if (environment === 'local') {
+      if (environment === 'Local') {
         handleLocalEnv(config, options?.secrets);
         return;
       }

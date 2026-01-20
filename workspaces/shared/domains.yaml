@@ -28,7 +28,7 @@ domains:
     name: Platform Domain
     description: Core platform infrastructure and shared services
     owner: Platform Team
-    workspace_id: 1
+    workspace_id: 4
     port: 20100
     workspace_file: workspace.dsl
     color: "#1168bd"
@@ -44,7 +44,7 @@ domains:
     name: Orders Domain
     description: Order management and fulfillment business domain
     owner: Commerce Team
-    workspace_id: 3
+    workspace_id: 5
     port: 20101
     workspace_file: workspace.dsl
     color: "#2e7d32"
@@ -61,7 +61,7 @@ domains:
     name: Notifications Domain
     description: Notification and messaging business domain
     owner: Engagement Team
-    workspace_id: 5
+    workspace_id: 6
     port: 20102
     workspace_file: workspace.dsl
     color: "#7b1fa2"
@@ -80,7 +80,7 @@ perspectives:
   executive:
     name: Executive Dashboard
     description: High-level business architecture view for leadership
-    workspace_id: 10
+    workspace_id: 1
     port: 20200
     includes:
       - platform
@@ -90,7 +90,7 @@ perspectives:
   security:
     name: Security Architecture
     description: Security-focused view showing trust boundaries and data flows
-    workspace_id: 11
+    workspace_id: 2
     port: 20201
     includes:
       - platform
@@ -100,7 +100,7 @@ perspectives:
   technical:
     name: Technical Architecture
     description: Developer-focused view with implementation details
-    workspace_id: 12
+    workspace_id: 3
     port: 20202
     includes:
       - platform
@@ -120,9 +120,9 @@ perspectives:
 # =============================================================================
 # | Domain/Perspective | Workspace ID | Branches              |
 # |--------------------|--------------|------------------------|
-# | platform           | 1            | main, q1-2025, q2-2025 |
-# | orders             | 3            | main, q1-2025, q2-2025 |
-# | notifications      | 5            | main, q1-2025, q2-2025 |
-# | executive          | 10           | main, q1-2025, q2-2025 |
-# | security           | 11           | main, q1-2025, q2-2025 |
-# | technical          | 12           | main, q1-2025, q2-2025 |
+# | executive          | 1            | main, q1-2025, q2-2025 |
+# | security           | 2            | main, q1-2025, q2-2025 |
+# | technical          | 3            | main, q1-2025, q2-2025 |
+# | platform           | 4            | main, q1-2025, q2-2025 |
+# | orders             | 5            | main, q1-2025, q2-2025 |
+# | notifications      | 6            | main, q1-2025, q2-2025 |

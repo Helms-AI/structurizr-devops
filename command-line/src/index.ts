@@ -5,8 +5,9 @@ import { registerValidateCommand } from './commands/validate';
 import { registerPromoteCommand } from './commands/promote';
 import { registerWorkspaceInitCommand } from './commands/workspace-init';
 import { registerWorkspaceCreateCommand } from './commands/workspace-create';
-import { registerQuarterRolloverCommand } from './commands/quarter-rollover';
 import { registerQuarterSnapshotCommand } from './commands/quarter-snapshot';
+import { registerQuarterSwitchCommand } from './commands/quarter-switch';
+import { registerQuarterNewCommand } from './commands/quarter-new';
 import { registerAdminGenerateKeyCommand } from './commands/admin-generate-key';
 import { registerListCommand } from './commands/list';
 import { registerSecretsListCommand } from './commands/secrets-list';
@@ -17,6 +18,10 @@ import { registerSecretsInitCommand } from './commands/secrets-init';
 import { registerVariablesListCommand } from './commands/variables-list';
 import { registerVariablesGetCommand } from './commands/variables-get';
 import { registerVariablesSetCommand } from './commands/variables-set';
+import { registerSystemStartCommand } from './commands/system-start';
+import { registerSystemStopCommand } from './commands/system-stop';
+import { registerSystemRestartCommand } from './commands/system-restart';
+import { registerSystemLogsCommand } from './commands/system-logs';
 
 const program = new Command();
 
@@ -35,8 +40,9 @@ registerWorkspaceInitCommand(program);
 registerWorkspaceCreateCommand(program);
 
 // Quarter commands
-registerQuarterRolloverCommand(program);
 registerQuarterSnapshotCommand(program);
+registerQuarterSwitchCommand(program);
+registerQuarterNewCommand(program);
 
 // Secrets commands
 registerSecretsListCommand(program);
@@ -52,5 +58,11 @@ registerVariablesSetCommand(program);
 
 // Admin commands
 registerAdminGenerateKeyCommand(program);
+
+// System commands
+registerSystemStartCommand(program);
+registerSystemStopCommand(program);
+registerSystemRestartCommand(program);
+registerSystemLogsCommand(program);
 
 program.parse(process.argv);

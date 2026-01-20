@@ -161,15 +161,19 @@ export function registerWorkspaceCreateCommand(program: Command): void {
        workspace_id: <assign ID>
        ...
 
-3. Configure GitHub secrets:
-   ./cli secrets:set STRUCTURIZR_${upperName}_WORKSPACE_ID <id>
-   ./cli secrets:set STRUCTURIZR_${upperName}_WORKSPACE_KEY_INT <key>
-   ./cli secrets:set STRUCTURIZR_${upperName}_WORKSPACE_SECRET_INT <secret>
+3. Configure local credentials (.env):
+   STRUCTURIZR_${upperName}_WORKSPACE_ID=<id>
+   STRUCTURIZR_${upperName}_WORKSPACE_KEY=<key>
+   STRUCTURIZR_${upperName}_WORKSPACE_SECRET=<secret>
 
-4. Validate the workspace:
-   ./cli validate ${name}
+4. Configure GitHub secrets (for CI/CD):
+   ./cli secrets:sync  # Syncs workspace ID from domains.yaml
+   ./cli secrets:init -e Integration  # Set API keys per environment
 
-5. (Optional) Edit visually with Structurizr Lite:
+5. Validate the workspace:
+   ./cli workspace:validate ${name}
+
+6. (Optional) Edit visually with Structurizr Lite:
    ./scripts/lite.sh ${name}
 `);
     });

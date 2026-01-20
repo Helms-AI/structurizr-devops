@@ -106,7 +106,6 @@ export interface PushWorkspaceOptions {
   workspaceId: string;
   key: string;
   secret: string;
-  branch?: string;
 }
 
 export async function pushWorkspace(
@@ -115,8 +114,7 @@ export async function pushWorkspace(
   url: string,
   workspaceId: string,
   key: string,
-  secret: string,
-  branch?: string
+  secret: string
 ): Promise<boolean> {
   const containerPath = workspacePath.replace(config.projectRoot, '/workspaces');
   const containerUrl = translateUrlForContainer(url);
@@ -124,9 +122,6 @@ export async function pushWorkspace(
   logger.info(`Pushing to ${containerUrl}`);
   logger.keyValue('Workspace ID', workspaceId);
   logger.keyValue('Workspace file', containerPath);
-  if (branch) {
-    logger.keyValue('Branch', branch);
-  }
 
   const args = [
     'push',
@@ -141,10 +136,6 @@ export async function pushWorkspace(
     '-workspace',
     containerPath,
   ];
-
-  if (branch) {
-    args.push('-branch', branch);
-  }
 
   const result = await runContainer({
     image: 'structurizr/cli:latest',
@@ -164,7 +155,6 @@ export async function pushWorkspaceWithOptions(options: PushWorkspaceOptions): P
     options.url,
     options.workspaceId,
     options.key,
-    options.secret,
-    options.branch
+    options.secret
   );
 }

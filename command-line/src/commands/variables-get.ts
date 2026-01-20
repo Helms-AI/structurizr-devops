@@ -4,25 +4,27 @@ import { getEnvValue, getEnvFilePath, envFileExists } from '../lib/dotenv';
 import { loadConfig } from '../lib/config';
 import { logger } from '../lib/logger';
 import type { Environment } from '../types';
+import { normalizeEnvironment } from '../types';
 
 export function registerVariablesGetCommand(program: Command): void {
   program
     .command('variables:get <name>')
     .description('Get a specific environment variable')
-    .requiredOption('-e, --environment <env>', 'Environment: local, Integration, or Production')
+    .requiredOption('-e, --environment <env>', 'Environment: Local, Integration, or Production')
     .action(async (name: string, options: { environment: string }) => {
       const config = loadConfig();
-      const environment = options.environment as Environment;
 
-      // Validate environment
-      if (!['local', 'Integration', 'Production'].includes(environment)) {
-        logger.error(`Invalid environment: ${environment}`);
-        logger.info('Valid environments: local, Integration, Production');
+      // Normalize environment (case-insensitive)
+      let environment: Environment;
+      try {
+        environment = normalizeEnvironment(options.environment);
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 
       // Handle local environment - read from .env file
-      if (environment === 'local') {
+      if (environment === 'Local') {
         handleLocalVariableGet(config, name);
         return;
       }

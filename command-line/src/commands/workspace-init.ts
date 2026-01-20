@@ -128,14 +128,15 @@ export function registerWorkspaceInitCommand(program: Command): void {
         console.log(`       workspace_id: ${credentials.id}`);
         logger.blank();
 
-        logger.info('2. Configure GitHub secrets (for CI/CD):');
-        console.log(`   ./cli secrets:set STRUCTURIZR_${workspaceUpper}_WORKSPACE_ID ${credentials.id}`);
-        console.log(`   ./cli secrets:set STRUCTURIZR_${workspaceUpper}_WORKSPACE_KEY_INT ${credentials.apiKey}`);
-        console.log(`   ./cli secrets:set STRUCTURIZR_${workspaceUpper}_WORKSPACE_SECRET_INT ${credentials.apiSecret}`);
+        logger.info('2. Sync workspace ID to GitHub (after adding to domains.yaml):');
+        console.log(`   ./cli secrets:sync`);
         logger.blank();
 
-        logger.info('3. Or sync from domains.yaml (after adding workspace_id):');
-        console.log(`   ./cli secrets:sync`);
+        logger.info('3. Configure GitHub secrets per environment (for CI/CD):');
+        console.log(`   ./cli secrets:init -e Integration`);
+        console.log(`   # Or manually:`);
+        console.log(`   gh secret set STRUCTURIZR_${workspaceUpper}_WORKSPACE_KEY --env Integration`);
+        console.log(`   gh secret set STRUCTURIZR_${workspaceUpper}_WORKSPACE_SECRET --env Integration`);
       } catch (error) {
         spinner.fail('Failed to create workspace');
         logger.error(error instanceof Error ? error.message : String(error));

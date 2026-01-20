@@ -85,22 +85,23 @@ export async function secretExists(name: string): Promise<boolean> {
 }
 
 /**
- * Generate the expected secret names for a workspace
+ * Generate the expected secret/variable names for a workspace.
+ *
+ * Variables use simple names without environment suffixes:
+ * - STRUCTURIZR_{NAME}_WORKSPACE_ID (usually a GitHub variable, not secret)
+ * - STRUCTURIZR_{NAME}_WORKSPACE_KEY (stored per GitHub environment)
+ * - STRUCTURIZR_{NAME}_WORKSPACE_SECRET (stored per GitHub environment)
  */
 export function generateSecretNames(workspaceName: string): {
   workspaceId: string;
-  workspaceKeyInt: string;
-  workspaceKeyProd: string;
-  workspaceSecretInt: string;
-  workspaceSecretProd: string;
+  workspaceKey: string;
+  workspaceSecret: string;
 } {
   const nameUpper = workspaceName.toUpperCase().replace(/-/g, '_');
   return {
     workspaceId: `STRUCTURIZR_${nameUpper}_WORKSPACE_ID`,
-    workspaceKeyInt: `STRUCTURIZR_${nameUpper}_WORKSPACE_KEY_INT`,
-    workspaceKeyProd: `STRUCTURIZR_${nameUpper}_WORKSPACE_KEY_PROD`,
-    workspaceSecretInt: `STRUCTURIZR_${nameUpper}_WORKSPACE_SECRET_INT`,
-    workspaceSecretProd: `STRUCTURIZR_${nameUpper}_WORKSPACE_SECRET_PROD`,
+    workspaceKey: `STRUCTURIZR_${nameUpper}_WORKSPACE_KEY`,
+    workspaceSecret: `STRUCTURIZR_${nameUpper}_WORKSPACE_SECRET`,
   };
 }
 

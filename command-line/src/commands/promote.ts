@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import ora from 'ora';
-import { loadConfig, getDomainCredentials, getEnvironmentCredentials } from '../lib/config';
+import { loadConfig, getDomainCredentials } from '../lib/config';
 import {
   validateWorkspace,
   pushWorkspace,
@@ -12,18 +12,18 @@ import {
   detectWorkspaceType,
   getWorkspacePath,
   getWorkspaceId,
-  quarterToBranch,
 } from '../lib/domains';
 import { logger } from '../lib/logger';
-import type { Environment, WorkspaceType } from '../types';
+import type { WorkspaceType } from '../types';
+import { normalizeEnvironment } from '../types';
 
 export function registerPromoteCommand(program: Command): void {
   program
-    .command('promote [workspace]')
+    .command('workspace:promote [workspace]')
     .description('Promote workspace(s) to Structurizr On-Premises')
     .option('-q, --quarter <quarter>', 'Quarter to promote (default: current)', 'current')
     .option('-t, --type <type>', 'Workspace type: domain or perspective (auto-detected if not specified)')
-    .option('-e, --environment <env>', 'Target environment: integration or production', 'integration')
+    .option('-e, --environment <env>', 'Target environment: Local, Integration, or Production', 'Local')
     .option('--validate', 'Run DSL validation before promotion')
     .option('-i, --workspace-id <id>', 'Workspace ID (overrides registry)')
     .option('--all', 'Promote all workspaces in the quarter')
@@ -39,23 +39,29 @@ export function registerPromoteCommand(program: Command): void {
     }) => {
       const config = loadConfig();
       const quarter = options?.quarter || 'current';
-      const environment = (options?.environment || 'integration') as Environment;
-      const branch = quarterToBranch(quarter, config);
+
+      // Normalize environment (case-insensitive)
+      let environment;
+      try {
+        environment = normalizeEnvironment(options?.environment || 'Local');
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      }
 
       logger.header('Structurizr Workspace Promotion');
       logger.keyValue('Quarter', quarter);
       logger.keyValue('Environment', environment);
-      logger.keyValue('Branch', branch);
       logger.blank();
 
-      // Determine target URL based on environment
-      const targetUrl = environment === 'Production'
-        ? config.structurizrUrlProd
-        : config.structurizrUrlInt;
+      // URL comes from STRUCTURIZR_URL environment variable
+      // For Local: defaults to http://localhost:20000/api
+      // For Integration/Production: provided via GitHub Actions environment
+      const targetUrl = config.structurizrUrl;
 
       if (!targetUrl) {
         logger.error(`No URL configured for environment '${environment}'`);
-        logger.info('Set STRUCTURIZR_URL_INT or STRUCTURIZR_URL_PROD in environment');
+        logger.info('Set STRUCTURIZR_URL in environment');
         process.exit(1);
       }
 
@@ -136,7 +142,7 @@ export function registerPromoteCommand(program: Command): void {
         logger.blank();
         logger.subheader('Workspaces to promote:');
         for (const w of workspacesToPromote) {
-          logger.info(`  ${w.name} (${w.type}) -> workspace ${w.workspaceId}, branch ${branch}`);
+          logger.info(`  ${w.name} (${w.type}) -> workspace ${w.workspaceId}`);
         }
         logger.blank();
         return;
@@ -200,8 +206,7 @@ export function registerPromoteCommand(program: Command): void {
             targetUrl,
             w.workspaceId,
             credentials.workspaceKey,
-            credentials.workspaceSecret,
-            branch
+            credentials.workspaceSecret
           );
 
           if (success) {
@@ -245,10 +250,7 @@ export function registerPromoteCommand(program: Command): void {
         for (const result of results.filter((r) => r.success)) {
           const w = workspacesToPromote.find((ws) => ws.name === result.name);
           if (w) {
-            const url = branch === 'main'
-              ? `${baseUrl}/workspace/${w.workspaceId}`
-              : `${baseUrl}/workspace/${w.workspaceId}/${branch}`;
-            logger.info(`  ${w.name}: ${url}`);
+            logger.info(`  ${w.name}: ${baseUrl}/workspace/${w.workspaceId}`);
           }
         }
         logger.blank();

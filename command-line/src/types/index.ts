@@ -7,8 +7,6 @@ export interface Config {
   containersDir: string;
   envFile: string;
   structurizrUrl: string;
-  structurizrUrlInt: string;
-  structurizrUrlProd: string;
   adminApiKey: string;
   javaSSLOpts: string;
   currentQuarter: string;
@@ -75,4 +73,17 @@ export interface WorkspaceInfo {
   workspaceId: number;
 }
 
-export type Environment = 'local' | 'Integration' | 'Production';
+export type Environment = 'Local' | 'Integration' | 'Production';
+
+/**
+ * Normalize environment input to canonical form (case-insensitive).
+ * Accepts: 'local', 'Local', 'LOCAL', 'integration', 'Integration', etc.
+ * Returns: 'Local', 'Integration', or 'Production'
+ */
+export function normalizeEnvironment(env: string): Environment {
+  const lower = env.toLowerCase();
+  if (lower === 'local') return 'Local';
+  if (lower === 'integration') return 'Integration';
+  if (lower === 'production') return 'Production';
+  throw new Error(`Invalid environment: ${env}. Valid values: Local, Integration, Production`);
+}

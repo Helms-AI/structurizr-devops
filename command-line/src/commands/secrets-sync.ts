@@ -63,16 +63,12 @@ export function registerSecretsSyncCommand(program: Command): void {
           exists,
         });
 
-        // Check for missing key/secret credentials
-        const missing: string[] = [];
-        if (!existingNames.has(names.workspaceKeyInt)) missing.push(names.workspaceKeyInt);
-        if (!existingNames.has(names.workspaceKeyProd)) missing.push(names.workspaceKeyProd);
-        if (!existingNames.has(names.workspaceSecretInt)) missing.push(names.workspaceSecretInt);
-        if (!existingNames.has(names.workspaceSecretProd)) missing.push(names.workspaceSecretProd);
-
-        if (missing.length > 0) {
-          missingCredentials.push({ workspace: workspace.name, missing });
-        }
+        // Note: Key/Secret credentials are stored per GitHub environment
+        // and checked via ./cli secrets:list -e <env> --check
+        missingCredentials.push({
+          workspace: workspace.name,
+          missing: [names.workspaceKey, names.workspaceSecret],
+        });
       }
 
       if (toSync.length === 0) {
@@ -112,21 +108,22 @@ export function registerSecretsSyncCommand(program: Command): void {
       logger.keyValue('Failed', String(failed));
       logger.blank();
 
-      // Report missing credentials
+      // Report credential setup instructions
       if (missingCredentials.length > 0) {
-        logger.subheader('Missing Credentials (Manual Setup Required)');
-        logger.info('The following secrets need to be set manually:');
+        logger.subheader('Credential Setup (Per GitHub Environment)');
+        logger.info('API keys and secrets are stored per GitHub environment.');
+        logger.info('Use ./cli secrets:init -e <env> or set them manually:');
         logger.blank();
 
         for (const { workspace, missing } of missingCredentials) {
           logger.info(`${workspace}:`);
           for (const name of missing) {
-            const env = name.includes('_INT') ? 'integration' : 'production';
-            logger.info(`  ./cli secrets:set ${name} <value> -e ${env}`);
+            logger.info(`  gh secret set ${name} --env Integration`);
+            logger.info(`  gh secret set ${name} --env Production`);
           }
         }
         logger.blank();
-        logger.info('Or use ./cli secrets:init -e <environment> for interactive setup');
+        logger.info('Or use ./cli secrets:init -e Integration for interactive setup');
       }
 
       if (failed > 0) {

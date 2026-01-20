@@ -107,9 +107,7 @@ Follow the interactive guide to configure your GitHub Actions runner.
 structurizr-devops/
 ├── .github/workflows/
 │   ├── ci.yml                  # Validation on all branches
-│   ├── promote.yml             # Unified promotion (integration + production)
-│   ├── quarterly-snapshot.yml  # Create quarterly architecture snapshots
-│   └── start-quarter.yml       # Initialize new quarter branches
+│   └── promote.yml             # Unified promotion (integration + production)
 ├── containers/
 │   ├── docker-compose.yml      # Full local stack
 │   ├── onpremises/
@@ -140,8 +138,7 @@ structurizr-devops/
 │   ├── validate-all.sh         # Local validation
 │   ├── promote.sh              # Manual promotion
 │   ├── setup-runner.sh         # Runner setup guide
-│   ├── generate-api-key.sh     # Generate bcrypt API key
-│   └── quarterly-rollover.sh   # Local quarterly rollover
+│   └── generate-api-key.sh     # Generate bcrypt API key
 └── README.md
 ```
 
@@ -199,107 +196,75 @@ Unified promotion workflow for all environments.
 - **Options**: Promote all workspaces or select specific one
 - **Credentials**: Uses environment-specific secrets (e.g., `STRUCTURIZR_PLATFORM_WORKSPACE_KEY_INT`)
 
-### Quarterly Snapshot (quarterly-snapshot.yml)
-
-- **Trigger**: Manual (workflow_dispatch)
-- **Inputs**:
-  - `quarter`: Quarter identifier (e.g., q2-2025)
-  - `create_git_tag`: Create immutable git tag (default: true)
-  - `create_workspace_branches`: Create branches on Structurizr On-Premises (default: false)
-- **Creates**:
-  - `workspaces/{quarter}/` directory snapshot
-  - Git tag `{quarter}-final`
-  - Optional: Structurizr workspace branches
-- **Purpose**: Preserve architecture state at quarter end
-
-### Start New Quarter (start-quarter.yml)
-
-- **Trigger**: Manual (workflow_dispatch)
-- **Inputs**:
-  - `new_quarter`: New quarter (e.g., q3-2025)
-  - `base_branch`: Branch to create from (default: main)
-  - `merge_planning`: Merge existing planning branch if exists
-  - `create_next_planning`: Create planning branch for next quarter
-  - `next_quarter`: Next quarter identifier (e.g., q4-2025)
-- **Creates**:
-  - `release/{new_quarter}` branch
-  - Optional: `planning/{next_quarter}` branch
-- **Purpose**: Initialize quarterly development cycle
-
 ## Quarterly Architecture Management
 
-The repository supports quarterly architecture snapshots using Structurizr workspace branches and git tags.
+The repository uses a directory-based approach for quarterly architecture management. All quarters exist as directories, with a `current` symlink pointing to the active quarter.
 
 ### Architecture Overview
 
 ```
-Git Repository                          Structurizr On-Premises
-─────────────────                       ─────────────────────────
-
-main ◄──────────────────────────────►   Workspace ID 1 (platform)
-  │                                       ├── branch: main (current)
-  ├── tag: q1-2025-final                  ├── branch: q1-2025
-  ├── tag: q2-2025-final                  ├── branch: q2-2025
-  │                                       └── branch: q3-2025
-  │
-release/q2-2025 (current quarter)
-  │
-planning/q3-2025 (future planning)
+workspaces/
+├── current -> q2-2025/           # Symlink to active quarter
+├── q1-2025/                      # Past quarter (archive)
+├── q2-2025/                      # Current quarter (active)
+├── q3-2025/                      # Future quarter (planning)
+└── shared/                       # Cross-cutting resources
 ```
 
-### Branch Strategy
+Timeline determines meaning:
+- **Past quarter** = Archive (e.g., `q1-2025/` when we're in Q2)
+- **Current quarter** = Active development (pointed to by `current` symlink)
+- **Future quarter** = Planning (e.g., `q3-2025/` when we're in Q2)
 
-| Branch Type | Example | Purpose |
-|-------------|---------|---------|
-| `main` | `main` | Latest promoted architecture |
-| `release/{quarter}` | `release/q2-2025` | Current quarter development |
-| `planning/{quarter}` | `planning/q3-2025` | Future quarter planning (isolated) |
-| Tag | `q1-2025-final` | Immutable quarterly snapshot |
+### Deployment Model
+
+- **Single version per workspace**: Promotion overwrites previous content
+- **Any quarter deployable**: Can promote from any `workspaces/{quarter}/` directory
+- **History in git**: Use git tags (`q1-2025-final`) and git history for rollback
 
 ### Quarterly Workflow
 
-#### Normal Development (Within Quarter)
+#### Normal Development
 
-1. Work on `release/q2-2025` branch
-2. Push to develop → auto-promotes to dev environment
-3. Merge to main → auto-promotes to staging environment
-4. Manual workflow → promotes to production environment
+1. Work in `workspaces/current/` (points to active quarter)
+2. Push to `main` branch → CI validates → promote to Integration/Production
 
-#### Planning Future Quarter
-
-1. Create `planning/q3-2025` from `release/q2-2025`
-2. Make architectural changes for Q3
-3. Changes stay isolated until rollover
-4. Optionally promote to Structurizr branch for review
-
-#### Quarterly Rollover (End of Quarter)
-
-**Option A: Using GitHub Actions (Recommended)**
-
-1. Run "Quarterly Snapshot" workflow with quarter `q2-2025`
-   - Creates Structurizr workspace branches
-   - Creates git tag `q2-2025-final`
-
-2. Run "Start New Quarter" workflow
-   - New quarter: `q3-2025`
-   - Base branch: `main`
-   - Merge planning: `true`
-   - Next quarter: `q4-2025`
-
-**Option B: Local Script**
+#### Start Planning Next Quarter
 
 ```bash
-./scripts/quarterly-rollover.sh q2-2025 q3-2025
+./cli quarter:new q3-2025                 # Create planning directory
+# Edit workspaces/q3-2025/ for future changes
 ```
 
-Then run "Quarterly Snapshot" workflow to create Structurizr branches.
+#### End of Quarter Rollover
+
+```bash
+./cli quarter:snapshot q2-2025            # Tag q2-2025-final in git
+./cli quarter:switch q3-2025              # Update current symlink
+./cli promote --all                       # Deploy new quarter to Structurizr
+```
+
+#### Deploy Historical Quarter (for review)
+
+```bash
+./cli promote platform -q q1-2025 -e Integration
+# Deploys Q1 architecture to Integration environment
+```
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `./cli quarter:new <quarter>` | Create new quarter directory (for planning) |
+| `./cli quarter:switch <quarter>` | Update `current` symlink to different quarter |
+| `./cli quarter:snapshot <quarter>` | Create git tag for quarterly milestone |
 
 ### Accessing Historical Architecture
 
-| Method | Command/URL |
-|--------|-------------|
+| Method | Command |
+|--------|---------|
 | Git checkout | `git checkout q1-2025-final` |
-| Structurizr UI | `http://localhost:20000/workspace/1/q1-2025` |
+| Promote | `./cli promote --all -q q1-2025` |
 
 ### Shared Resources
 

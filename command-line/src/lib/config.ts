@@ -53,8 +53,6 @@ export function loadConfig(): Config {
     containersDir: path.join(projectRoot, 'containers'),
     envFile,
     structurizrUrl: process.env.STRUCTURIZR_URL || 'http://localhost:20000/api',
-    structurizrUrlInt: process.env.STRUCTURIZR_URL_INT || process.env.STRUCTURIZR_URL || 'http://localhost:20000/api',
-    structurizrUrlProd: process.env.STRUCTURIZR_URL_PROD || process.env.STRUCTURIZR_URL || '',
     adminApiKey: process.env.STRUCTURIZR_ADMIN_API_KEY || '',
     javaSSLOpts:
       '-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=true -Dhttps.protocols=TLSv1.2,TLSv1.3 -Djdk.tls.client.protocols=TLSv1.2,TLSv1.3',
@@ -62,9 +60,19 @@ export function loadConfig(): Config {
   };
 }
 
-export function getDomainCredentials(domain: string, environment?: Environment): DomainCredentials {
+/**
+ * Get domain credentials from environment variables.
+ *
+ * Credentials use simple names without environment suffixes:
+ * - STRUCTURIZR_{NAME}_WORKSPACE_ID
+ * - STRUCTURIZR_{NAME}_WORKSPACE_KEY
+ * - STRUCTURIZR_{NAME}_WORKSPACE_SECRET
+ *
+ * For Local: loaded from .env file
+ * For Integration/Production: provided via GitHub Actions environment
+ */
+export function getDomainCredentials(domain: string, _environment?: Environment): DomainCredentials {
   const domainUpper = domain.toUpperCase().replace(/-/g, '_');
-  const envSuffix = environment ? `_${environment.toUpperCase().replace('INTEGRATION', 'INT')}` : '';
 
   return {
     workspaceId:
@@ -72,28 +80,32 @@ export function getDomainCredentials(domain: string, environment?: Environment):
       process.env.STRUCTURIZR_WORKSPACE_ID ||
       '',
     workspaceKey:
-      process.env[`STRUCTURIZR_${domainUpper}_WORKSPACE_KEY${envSuffix}`] ||
       process.env[`STRUCTURIZR_${domainUpper}_WORKSPACE_KEY`] ||
       process.env.STRUCTURIZR_WORKSPACE_KEY ||
       '',
     workspaceSecret:
-      process.env[`STRUCTURIZR_${domainUpper}_WORKSPACE_SECRET${envSuffix}`] ||
       process.env[`STRUCTURIZR_${domainUpper}_WORKSPACE_SECRET`] ||
       process.env.STRUCTURIZR_WORKSPACE_SECRET ||
       '',
   };
 }
 
+/**
+ * Get full environment credentials including URL.
+ *
+ * URL comes from STRUCTURIZR_URL environment variable.
+ * For Local: defaults to http://localhost:20000/api
+ * For Integration/Production: provided via GitHub Actions environment
+ */
 export function getEnvironmentCredentials(
   domain: string,
   environment: Environment,
   config: Config
 ): EnvironmentCredentials {
   const creds = getDomainCredentials(domain, environment);
-  const url = environment === 'Production' ? config.structurizrUrlProd : config.structurizrUrlInt;
 
   return {
-    url,
+    url: config.structurizrUrl,
     ...creds,
   };
 }

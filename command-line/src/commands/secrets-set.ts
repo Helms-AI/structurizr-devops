@@ -5,28 +5,28 @@ import { checkGitHubCli, setSecret, setEnvironmentSecret, getRepoPath } from '..
 import { setEnvValue, getEnvFilePath } from '../lib/dotenv';
 import { logger } from '../lib/logger';
 import type { Environment } from '../types';
-
-const VALID_ENVIRONMENTS = ['local', 'Integration', 'Production'];
+import { normalizeEnvironment } from '../types';
 
 export function registerSecretsSetCommand(program: Command): void {
   program
     .command('secrets:set <name> <value>')
     .description('Set a secret for an environment')
-    .requiredOption('-e, --environment <env>', 'Environment: local, Integration, or Production')
+    .requiredOption('-e, --environment <env>', 'Environment: Local, Integration, or Production')
     .option('--repo', 'Set as repository-level secret (shared across all environments)')
     .action(async (name: string, value: string, options: { environment: string; repo?: boolean }) => {
       const config = loadConfig();
-      const environment = options.environment as Environment;
 
-      // Validate environment
-      if (!VALID_ENVIRONMENTS.includes(environment)) {
-        logger.error(`Invalid environment: ${environment}`);
-        logger.info('Valid environments: local, Integration, Production');
+      // Normalize environment (case-insensitive)
+      let environment: Environment;
+      try {
+        environment = normalizeEnvironment(options.environment);
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 
       // Handle local environment - write to .env file
-      if (environment === 'local') {
+      if (environment === 'Local') {
         await handleLocalSecret(config, name, value);
         return;
       }

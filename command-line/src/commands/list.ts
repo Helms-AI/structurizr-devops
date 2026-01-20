@@ -13,7 +13,7 @@ import { logger } from '../lib/logger';
 
 export function registerListCommand(program: Command): void {
   program
-    .command('list')
+    .command('workspace:list')
     .description('List all available workspaces')
     .option('-q, --quarter <quarter>', 'Quarter to list (default: current)', 'current')
     .option('-v, --verbose', 'Show detailed information')
