@@ -1,8 +1,13 @@
 import { Command } from 'commander';
 import ora from 'ora';
-import { loadConfig, appendToEnvFile } from '../lib/config';
-import { listAllWorkspaces, workspaceExists, detectWorkspaceType } from '../lib/domains';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as yaml from 'yaml';
+import { loadConfig } from '../lib/config';
+import { quarterExists, isUnifiedStructure, getWorkspaceId, listQuarters } from '../lib/quarters';
+import { setEnvValue, getEnvFilePath } from '../lib/dotenv';
 import { logger } from '../lib/logger';
+import { normalizeEnvironment } from '../types';
 import type { WorkspaceCredentials } from '../types';
 
 interface CreateWorkspaceResponse {
@@ -14,6 +19,9 @@ interface CreateWorkspaceResponse {
   secret?: string;
 }
 
+/**
+ * Create workspace via Structurizr On-Premises Admin API
+ */
 async function createWorkspaceViaApi(
   url: string,
   apiKey: string
@@ -43,32 +51,98 @@ async function createWorkspaceViaApi(
   };
 }
 
+/**
+ * Update registry.yaml with workspace_id
+ */
+function updateRegistryWithWorkspaceId(config: { sharedDir: string }, workspaceId: string): boolean {
+  const registryPath = path.join(config.sharedDir, 'registry.yaml');
+
+  try {
+    if (!fs.existsSync(registryPath)) {
+      // Create new registry file
+      const registry = {
+        workspace_id: parseInt(workspaceId, 10),
+        lite_port: 20100,
+        current_quarter: 'current',
+        quarters: {},
+      };
+      fs.writeFileSync(registryPath, yaml.stringify(registry));
+      return true;
+    }
+
+    // Update existing registry
+    const content = fs.readFileSync(registryPath, 'utf-8');
+    const registry = yaml.parse(content);
+    registry.workspace_id = parseInt(workspaceId, 10);
+    fs.writeFileSync(registryPath, yaml.stringify(registry));
+    return true;
+  } catch (error) {
+    logger.error(`Failed to update registry.yaml: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
 export function registerWorkspaceInitCommand(program: Command): void {
   program
-    .command('workspace:init <workspace>')
-    .description('Initialize new workspace via Admin API')
-    .option('--save', 'Save credentials to .env file')
-    .option('-q, --quarter <quarter>', 'Quarter to look for workspace (default: current)', 'current')
-    .action(async (workspace: string, options: { save?: boolean; quarter?: string }) => {
+    .command('workspace:init')
+    .description('Initialize workspace in Structurizr On-Premises and save credentials')
+    .option('-e, --environment <env>', 'Target environment: Local, Integration, or Production', 'Local')
+    .option('-q, --quarter <quarter>', 'Quarter to initialize (default: current)', 'current')
+    .option('--update-registry', 'Update registry.yaml with new workspace ID')
+    .action(async (options?: {
+      environment?: string;
+      quarter?: string;
+      updateRegistry?: boolean;
+    }) => {
       const config = loadConfig();
-      const quarter = options.quarter || 'current';
+      const quarter = options?.quarter || 'current';
+
+      // Normalize environment
+      let environment;
+      try {
+        environment = normalizeEnvironment(options?.environment || 'Local');
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      }
+
+      const isLocal = environment === 'Local';
 
       logger.header('Initialize Workspace');
+      logger.keyValue('Quarter', quarter);
+      logger.keyValue('Environment', environment);
+      logger.blank();
 
-      // Check if workspace exists
-      if (!workspaceExists(config, workspace, undefined, quarter)) {
-        logger.error(`Workspace '${workspace}' not found in quarter '${quarter}'`);
+      // Check if quarter exists
+      if (!quarterExists(config, quarter)) {
+        logger.error(`Quarter '${quarter}' not found`);
         logger.blank();
-        const allWorkspaces = listAllWorkspaces(config, quarter);
-        if (allWorkspaces.length > 0) {
-          logger.info('Available workspaces:');
-          logger.list(allWorkspaces.map((w) => `${w.name} (${w.type})`));
+        const quarters = listQuarters(config);
+        if (quarters.length > 0) {
+          logger.info('Available quarters:');
+          logger.list(quarters);
         }
         process.exit(1);
       }
 
-      const type = detectWorkspaceType(config, workspace, quarter);
+      // Check structure type
+      if (!isUnifiedStructure(config, quarter)) {
+        logger.warn(`Quarter '${quarter}' uses legacy structure.`);
+        logger.info('This command is for unified workspace structure only.');
+        process.exit(1);
+      }
 
+      // Check for existing workspace ID
+      const existingId = getWorkspaceId(config);
+      if (existingId) {
+        logger.warn(`Workspace ID ${existingId} already exists in registry.yaml`);
+        logger.info('Use workspace:promote to push updates to an existing workspace.');
+        logger.blank();
+        logger.info('To create a new workspace, first remove workspace_id from registry.yaml');
+        process.exit(1);
+      }
+
+      // Check admin API key
       if (!config.adminApiKey) {
         logger.error('STRUCTURIZR_ADMIN_API_KEY environment variable is not set');
         logger.blank();
@@ -77,10 +151,14 @@ export function registerWorkspaceInitCommand(program: Command): void {
         process.exit(1);
       }
 
-      logger.keyValue('Workspace', workspace);
-      logger.keyValue('Type', type || 'unknown');
-      logger.keyValue('Quarter', quarter);
-      logger.keyValue('URL', `${config.structurizrUrl.replace('/api', '')}/api/workspace`);
+      // Check target URL
+      if (!config.structurizrUrl) {
+        logger.error('STRUCTURIZR_URL environment variable is not set');
+        logger.info('Set it with: export STRUCTURIZR_URL=http://localhost:20000/api');
+        process.exit(1);
+      }
+
+      logger.keyValue('Target URL', config.structurizrUrl.replace('/api', ''));
       logger.blank();
 
       const spinner = ora('Creating workspace via Admin API...').start();
@@ -94,49 +172,61 @@ export function registerWorkspaceInitCommand(program: Command): void {
         spinner.succeed('Workspace created successfully!');
         logger.blank();
 
-        logger.subheader('WORKSPACE CREDENTIALS');
-        logger.keyValue('Workspace', workspace);
+        logger.subheader('Workspace Credentials');
         logger.keyValue('Workspace ID', credentials.id);
         logger.keyValue('API Key', credentials.apiKey);
         logger.keyValue('API Secret', credentials.apiSecret);
         logger.blank();
 
-        const workspaceUpper = workspace.toUpperCase().replace(/-/g, '_');
-        const envVars = {
-          [`STRUCTURIZR_${workspaceUpper}_WORKSPACE_ID`]: credentials.id,
-          [`STRUCTURIZR_${workspaceUpper}_WORKSPACE_KEY`]: credentials.apiKey,
-          [`STRUCTURIZR_${workspaceUpper}_WORKSPACE_SECRET`]: credentials.apiSecret,
-        };
+        // Save credentials based on environment
+        if (isLocal) {
+          logger.subheader('Saving to .env');
 
-        logger.subheader('ENVIRONMENT VARIABLES');
-        for (const [key, value] of Object.entries(envVars)) {
-          console.log(`${key}=${value}`);
-        }
-        logger.blank();
+          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_ID', credentials.id);
+          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_KEY', credentials.apiKey);
+          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_SECRET', credentials.apiSecret);
 
-        if (options.save) {
-          const date = new Date().toISOString().split('T')[0];
-          appendToEnvFile(config.envFile, envVars, `${workspace} workspace (created ${date})`);
-          logger.success(`Credentials appended to ${config.envFile}`);
+          logger.success(`Credentials saved to ${getEnvFilePath(config)}`);
+          logger.blank();
+
+          // Update registry.yaml
+          logger.subheader('Updating registry.yaml');
+          if (updateRegistryWithWorkspaceId(config, credentials.id)) {
+            logger.success(`workspace_id: ${credentials.id} added to registry.yaml`);
+          }
+          logger.blank();
+        } else {
+          // For remote environments, display the values for manual setup
+          logger.subheader('GitHub Secrets to Configure');
+          logger.info(`Environment: ${environment}`);
+          logger.blank();
+
+          logger.info('Run these commands to set GitHub secrets:');
+          console.log(`  gh secret set STRUCTURIZR_WORKSPACE_KEY --env ${environment}`);
+          console.log(`  # Enter: ${credentials.apiKey}`);
+          console.log(`  gh secret set STRUCTURIZR_WORKSPACE_SECRET --env ${environment}`);
+          console.log(`  # Enter: ${credentials.apiSecret}`);
+          logger.blank();
+
+          if (options?.updateRegistry) {
+            logger.subheader('Updating registry.yaml');
+            if (updateRegistryWithWorkspaceId(config, credentials.id)) {
+              logger.success(`workspace_id: ${credentials.id} added to registry.yaml`);
+            }
+          } else {
+            logger.info('Add workspace_id to registry.yaml:');
+            console.log(`  workspace_id: ${credentials.id}`);
+          }
           logger.blank();
         }
 
-        logger.subheader('NEXT STEPS');
-        logger.info('1. Add workspace_id to domains.yaml:');
-        console.log(`   ${type}s:`);
-        console.log(`     ${workspace}:`);
-        console.log(`       workspace_id: ${credentials.id}`);
+        logger.subheader('Next Steps');
+        logger.info('1. Promote the workspace to upload DSL content:');
+        console.log(`   ./cli workspace:promote -q ${quarter} -e ${environment}`);
         logger.blank();
 
-        logger.info('2. Sync workspace ID to GitHub (after adding to domains.yaml):');
-        console.log(`   ./cli secrets:sync`);
-        logger.blank();
+        logger.success('Workspace initialized successfully!');
 
-        logger.info('3. Configure GitHub secrets per environment (for CI/CD):');
-        console.log(`   ./cli secrets:init -e Integration`);
-        console.log(`   # Or manually:`);
-        console.log(`   gh secret set STRUCTURIZR_${workspaceUpper}_WORKSPACE_KEY --env Integration`);
-        console.log(`   gh secret set STRUCTURIZR_${workspaceUpper}_WORKSPACE_SECRET --env Integration`);
       } catch (error) {
         spinner.fail('Failed to create workspace');
         logger.error(error instanceof Error ? error.message : String(error));

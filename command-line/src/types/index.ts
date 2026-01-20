@@ -51,6 +51,57 @@ export interface DomainsRegistry {
   perspectives: Record<string, Perspective>;
 }
 
+// =============================================================================
+// New Unified Workspace Types (registry.yaml)
+// =============================================================================
+
+export interface QuarterRegistry {
+  workspace_id: number;
+  lite_port: number;
+  current_quarter: string;
+  quarters: Record<string, QuarterDefinition>;
+  domains?: Record<string, DomainMetadata>;
+  perspectives?: Record<string, PerspectiveMetadata>;
+}
+
+export interface QuarterDefinition {
+  name: string;
+  description: string;
+  branch: string;
+  status: 'active' | 'archived' | 'planned';
+  workspace_file: string;
+}
+
+export interface QuarterInfo {
+  name: string;
+  description: string;
+  branch: string;
+  status: string;
+  workspaceFile: string;
+}
+
+export interface QuarterWorkspaceInfo {
+  quarter: string;
+  path: string;
+  workspaceId: number;
+  branch: string;
+  isUnified: boolean;
+}
+
+export interface DomainMetadata {
+  name: string;
+  description: string;
+  owner: string;
+  color: string;
+  tags: string[];
+}
+
+export interface PerspectiveMetadata {
+  name: string;
+  description: string;
+  filter_tags: string[];
+}
+
 export interface ValidationResult {
   domain: string;
   valid: boolean;

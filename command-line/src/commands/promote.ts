@@ -1,40 +1,116 @@
 import { Command } from 'commander';
 import ora from 'ora';
-import { loadConfig, getDomainCredentials } from '../lib/config';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as yaml from 'yaml';
+import { loadConfig, getWorkspaceCredentials } from '../lib/config';
 import {
   validateWorkspace,
   pushWorkspace,
   translateUrlForContainer,
 } from '../lib/docker';
 import {
-  listAllWorkspaces,
-  workspaceExists,
-  detectWorkspaceType,
+  listQuarters,
+  quarterExists,
+  isUnifiedStructure,
   getWorkspacePath,
   getWorkspaceId,
-} from '../lib/domains';
+  getQuarterBranch,
+  getQuarterWorkspaceInfo,
+} from '../lib/quarters';
+import { setEnvValue, getEnvFilePath } from '../lib/dotenv';
 import { logger } from '../lib/logger';
-import type { WorkspaceType } from '../types';
 import { normalizeEnvironment } from '../types';
+import type { WorkspaceCredentials, Config } from '../types';
+
+interface CreateWorkspaceResponse {
+  id?: number;
+  workspaceId?: number;
+  apiKey?: string;
+  key?: string;
+  apiSecret?: string;
+  secret?: string;
+}
+
+/**
+ * Create workspace via Structurizr On-Premises Admin API
+ */
+async function createWorkspaceViaApi(
+  url: string,
+  apiKey: string
+): Promise<WorkspaceCredentials> {
+  const baseUrl = url.replace('/api', '');
+  const endpoint = `${baseUrl}/api/workspace`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'X-Authorization': apiKey,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`HTTP ${response.status}: ${text}`);
+  }
+
+  const data = (await response.json()) as CreateWorkspaceResponse;
+
+  return {
+    id: String(data.id || data.workspaceId || ''),
+    apiKey: data.apiKey || data.key || '',
+    apiSecret: data.apiSecret || data.secret || '',
+  };
+}
+
+/**
+ * Update registry.yaml with workspace_id
+ */
+function updateRegistryWithWorkspaceId(config: Config, workspaceId: string): boolean {
+  const registryPath = path.join(config.sharedDir, 'registry.yaml');
+
+  try {
+    if (!fs.existsSync(registryPath)) {
+      const registry = {
+        workspace_id: parseInt(workspaceId, 10),
+        lite_port: 20100,
+        current_quarter: 'current',
+        quarters: {},
+      };
+      fs.writeFileSync(registryPath, yaml.stringify(registry));
+      return true;
+    }
+
+    const content = fs.readFileSync(registryPath, 'utf-8');
+    const registry = yaml.parse(content);
+    registry.workspace_id = parseInt(workspaceId, 10);
+    fs.writeFileSync(registryPath, yaml.stringify(registry));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 
 export function registerPromoteCommand(program: Command): void {
   program
-    .command('workspace:promote [workspace]')
-    .description('Promote workspace(s) to Structurizr On-Premises')
+    .command('workspace:promote')
+    .description('Promote a quarter workspace to Structurizr On-Premises')
     .option('-q, --quarter <quarter>', 'Quarter to promote (default: current)', 'current')
-    .option('-t, --type <type>', 'Workspace type: domain or perspective (auto-detected if not specified)')
     .option('-e, --environment <env>', 'Target environment: Local, Integration, or Production', 'Local')
     .option('--validate', 'Run DSL validation before promotion')
     .option('-i, --workspace-id <id>', 'Workspace ID (overrides registry)')
-    .option('--all', 'Promote all workspaces in the quarter')
+    .option('-b, --branch <branch>', 'Structurizr branch name (overrides quarter)')
+    .option('--init', 'Initialize workspace if it does not exist (creates and saves credentials)')
     .option('--dry-run', 'Show what would be promoted without making changes')
-    .action(async (workspace?: string, options?: {
+    .action(async (options?: {
       quarter?: string;
-      type?: string;
       environment?: string;
       validate?: boolean;
       workspaceId?: string;
-      all?: boolean;
+      branch?: string;
+      init?: boolean;
       dryRun?: boolean;
     }) => {
       const config = loadConfig();
@@ -49,101 +125,137 @@ export function registerPromoteCommand(program: Command): void {
         process.exit(1);
       }
 
+      const isLocal = environment === 'Local';
+
       logger.header('Structurizr Workspace Promotion');
       logger.keyValue('Quarter', quarter);
       logger.keyValue('Environment', environment);
       logger.blank();
 
-      // URL comes from STRUCTURIZR_URL environment variable
-      // For Local: defaults to http://localhost:20000/api
-      // For Integration/Production: provided via GitHub Actions environment
-      const targetUrl = config.structurizrUrl;
+      // Check if quarter exists
+      if (!quarterExists(config, quarter)) {
+        logger.error(`Quarter '${quarter}' not found`);
+        logger.blank();
+        const quarters = listQuarters(config);
+        if (quarters.length > 0) {
+          logger.info('Available quarters:');
+          logger.list(quarters);
+        }
+        process.exit(1);
+      }
 
+      // Check structure type
+      const isUnified = isUnifiedStructure(config, quarter);
+      if (!isUnified) {
+        logger.warn(`Quarter '${quarter}' uses legacy structure.`);
+        logger.info('Consider migrating to the unified workspace structure.');
+        logger.blank();
+        logger.info('For legacy promotion, use the domain-specific pattern.');
+        process.exit(1);
+      }
+
+      // Get workspace info
+      const workspaceInfo = getQuarterWorkspaceInfo(config, quarter);
+      if (!workspaceInfo) {
+        logger.error(`Could not load workspace info for quarter '${quarter}'`);
+        process.exit(1);
+      }
+
+      // Get target URL
+      const targetUrl = config.structurizrUrl;
       if (!targetUrl) {
         logger.error(`No URL configured for environment '${environment}'`);
         logger.info('Set STRUCTURIZR_URL in environment');
         process.exit(1);
       }
 
-      interface WorkspaceToPromote {
-        name: string;
-        type: WorkspaceType;
-        path: string;
-        workspaceId: string;
+      const workspacePath = getWorkspacePath(config, quarter);
+
+      // Get workspace ID (from option or registry)
+      let workspaceId = options?.workspaceId || String(getWorkspaceId(config) || '');
+
+      // Get credentials
+      let credentials = getWorkspaceCredentials(environment);
+
+      // Check if we need to initialize
+      const needsInit = !workspaceId || !credentials.workspaceKey || !credentials.workspaceSecret;
+
+      if (needsInit && options?.init && isLocal) {
+        // Auto-initialize for Local environment
+        logger.subheader('Initialization Phase');
+
+        if (!config.adminApiKey) {
+          logger.error('STRUCTURIZR_ADMIN_API_KEY is required for --init');
+          logger.info('Set it with: export STRUCTURIZR_ADMIN_API_KEY=your-admin-key');
+          process.exit(1);
+        }
+
+        const initSpinner = ora('Creating workspace via Admin API...').start();
+
+        try {
+          const newCredentials = await createWorkspaceViaApi(
+            targetUrl,
+            config.adminApiKey
+          );
+
+          initSpinner.succeed('Workspace created!');
+          logger.blank();
+
+          // Save credentials to .env
+          workspaceId = newCredentials.id;
+          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_ID', newCredentials.id);
+          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_KEY', newCredentials.apiKey);
+          setEnvValue(config, 'STRUCTURIZR_WORKSPACE_SECRET', newCredentials.apiSecret);
+
+          logger.success(`Credentials saved to ${getEnvFilePath(config)}`);
+
+          // Update registry.yaml
+          if (updateRegistryWithWorkspaceId(config, newCredentials.id)) {
+            logger.success(`workspace_id: ${newCredentials.id} added to registry.yaml`);
+          }
+          logger.blank();
+
+          // Update credentials for promotion
+          credentials = {
+            workspaceId: newCredentials.id,
+            workspaceKey: newCredentials.apiKey,
+            workspaceSecret: newCredentials.apiSecret,
+          };
+
+        } catch (error) {
+          initSpinner.fail('Failed to create workspace');
+          logger.error(error instanceof Error ? error.message : String(error));
+          process.exit(1);
+        }
+      } else if (needsInit && options?.init && !isLocal) {
+        logger.error('--init is only supported for Local environment');
+        logger.info('For remote environments, run: ./cli workspace:init -e ' + environment);
+        process.exit(1);
+      } else if (!workspaceId) {
+        logger.error('No workspace ID found. Set workspace_id in registry.yaml or use --workspace-id');
+        logger.info('Or use --init to create a new workspace (Local only)');
+        process.exit(1);
+      } else if (!credentials.workspaceKey || !credentials.workspaceSecret) {
+        logger.error(`Missing credentials for environment '${environment}'`);
+        logger.info('Set STRUCTURIZR_WORKSPACE_KEY and STRUCTURIZR_WORKSPACE_SECRET');
+        logger.info('Or use --init to create a new workspace (Local only)');
+        process.exit(1);
       }
 
-      const workspacesToPromote: WorkspaceToPromote[] = [];
+      // Get branch (from option, registry, or default to quarter name)
+      const branch = options?.branch || getQuarterBranch(config, quarter);
 
-      if (workspace && !options?.all) {
-        // Single workspace promotion
-        let type = options?.type as WorkspaceType | undefined;
-        if (!type) {
-          const detected = detectWorkspaceType(config, workspace, quarter);
-          type = detected || undefined;
-          if (!type) {
-            logger.error(`Workspace '${workspace}' not found in quarter '${quarter}'`);
-            logger.blank();
-            const allWorkspaces = listAllWorkspaces(config, quarter);
-            if (allWorkspaces.length > 0) {
-              logger.info('Available workspaces:');
-              logger.list(allWorkspaces.map((w) => `${w.name} (${w.type})`));
-            }
-            process.exit(1);
-          }
-        }
-
-        if (!workspaceExists(config, workspace, type, quarter)) {
-          logger.error(`Workspace '${workspace}' (${type}) not found in quarter '${quarter}'`);
-          process.exit(1);
-        }
-
-        // Get workspace ID
-        const wsId = options?.workspaceId || String(getWorkspaceId(config, workspace, type) || '');
-        if (!wsId) {
-          logger.error(`No workspace ID found for '${workspace}'. Set workspace_id in domains.yaml or use --workspace-id`);
-          process.exit(1);
-        }
-
-        workspacesToPromote.push({
-          name: workspace,
-          type,
-          path: getWorkspacePath(config, workspace, type, quarter),
-          workspaceId: wsId,
-        });
-      } else {
-        // Promote all workspaces
-        const allWorkspaces = listAllWorkspaces(config, quarter);
-        if (allWorkspaces.length === 0) {
-          logger.error(`No workspaces found in quarter '${quarter}'`);
-          process.exit(1);
-        }
-
-        for (const w of allWorkspaces) {
-          if (!w.workspaceId) {
-            logger.warn(`Skipping ${w.name} - no workspace_id configured in domains.yaml`);
-            continue;
-          }
-          workspacesToPromote.push({
-            name: w.name,
-            type: w.type,
-            path: w.path,
-            workspaceId: String(w.workspaceId),
-          });
-        }
-
-        if (workspacesToPromote.length === 0) {
-          logger.error('No workspaces have workspace_id configured');
-          process.exit(1);
-        }
-      }
+      logger.keyValue('Workspace Path', workspacePath);
+      logger.keyValue('Workspace ID', workspaceId);
+      logger.keyValue('Branch', branch);
+      logger.keyValue('Target URL', translateUrlForContainer(targetUrl));
+      logger.blank();
 
       if (options?.dryRun) {
         logger.info('DRY RUN - No changes will be made');
         logger.blank();
-        logger.subheader('Workspaces to promote:');
-        for (const w of workspacesToPromote) {
-          logger.info(`  ${w.name} (${w.type}) -> workspace ${w.workspaceId}`);
-        }
+        logger.subheader('Would promote:');
+        logger.info(`  ${quarter} -> workspace ${workspaceId} (branch: ${branch})`);
         logger.blank();
         return;
       }
@@ -151,115 +263,74 @@ export function registerPromoteCommand(program: Command): void {
       // Validation phase
       if (options?.validate) {
         logger.subheader('Validation Phase');
-        for (const w of workspacesToPromote) {
-          const spinner = ora(`Validating ${w.name}...`).start();
-          try {
-            const valid = await validateWorkspace(config, w.path);
-            if (valid) {
-              spinner.succeed(`${w.name}: VALID`);
-            } else {
-              spinner.fail(`${w.name}: INVALID`);
-              logger.error('Validation failed. Aborting promotion.');
-              process.exit(1);
-            }
-          } catch (error) {
-            spinner.fail(`${w.name}: ERROR`);
-            logger.error(error instanceof Error ? error.message : String(error));
+        const spinner = ora(`Validating ${quarter}...`).start();
+        try {
+          const valid = await validateWorkspace(config, workspacePath);
+          if (valid) {
+            spinner.succeed(`${quarter}: VALID`);
+          } else {
+            spinner.fail(`${quarter}: INVALID`);
+            logger.error('Validation failed. Aborting promotion.');
             process.exit(1);
           }
+        } catch (error) {
+          spinner.fail(`${quarter}: ERROR`);
+          logger.error(error instanceof Error ? error.message : String(error));
+          process.exit(1);
         }
         logger.blank();
       }
 
       // Promotion phase
       logger.subheader('Promotion Phase');
-      logger.keyValue('Target URL', translateUrlForContainer(targetUrl));
-      logger.blank();
 
-      let promoted = 0;
-      let failed = 0;
-      const results: Array<{ name: string; success: boolean; error?: string }> = [];
+      const spinner = ora(`Promoting ${quarter} to workspace ${workspaceId}...`).start();
 
-      for (const w of workspacesToPromote) {
-        const credentials = getDomainCredentials(w.name, environment);
+      try {
+        const success = await pushWorkspace(
+          config,
+          workspacePath,
+          targetUrl,
+          workspaceId,
+          credentials.workspaceKey,
+          credentials.workspaceSecret,
+          branch
+        );
 
-        if (!credentials.workspaceKey) {
-          logger.warn(`Skipping ${w.name} - missing workspace key`);
-          results.push({ name: w.name, success: false, error: 'Missing workspace key' });
-          failed++;
-          continue;
-        }
+        if (success) {
+          spinner.succeed(`${quarter}: PROMOTED`);
+          logger.blank();
 
-        if (!credentials.workspaceSecret) {
-          logger.warn(`Skipping ${w.name} - missing workspace secret`);
-          results.push({ name: w.name, success: false, error: 'Missing workspace secret' });
-          failed++;
-          continue;
-        }
+          // Summary
+          logger.header('Promotion Summary');
+          logger.keyValue('Quarter', quarter);
+          logger.keyValue('Workspace ID', workspaceId);
+          logger.keyValue('Branch', branch);
+          logger.keyValue('Environment', environment);
+          logger.blank();
 
-        const spinner = ora(`Promoting ${w.name} (${w.type})...`).start();
-
-        try {
-          const success = await pushWorkspace(
-            config,
-            w.path,
-            targetUrl,
-            w.workspaceId,
-            credentials.workspaceKey,
-            credentials.workspaceSecret
-          );
-
-          if (success) {
-            spinner.succeed(`${w.name}: PROMOTED`);
-            results.push({ name: w.name, success: true });
-            promoted++;
-          } else {
-            spinner.fail(`${w.name}: FAILED`);
-            results.push({ name: w.name, success: false, error: 'Push failed' });
-            failed++;
+          // Access URL
+          const baseUrl = targetUrl.replace('/api', '');
+          const accessUrl = `${baseUrl}/workspace/${workspaceId}`;
+          logger.subheader('Access Workspace');
+          logger.info(`  ${accessUrl}`);
+          if (branch !== 'main') {
+            logger.info(`  ${accessUrl}/${branch}`);
           }
-        } catch (error) {
-          spinner.fail(`${w.name}: ERROR`);
-          const errorMsg = error instanceof Error ? error.message : String(error);
-          results.push({ name: w.name, success: false, error: errorMsg });
-          logger.error(errorMsg);
-          failed++;
+          logger.blank();
+          logger.success('Workspace promoted successfully!');
+        } else {
+          spinner.fail(`${quarter}: FAILED`);
+          logger.blank();
+          logger.error('Promotion failed');
+          process.exit(1);
         }
-
+      } catch (error) {
+        spinner.fail(`${quarter}: ERROR`);
         logger.blank();
-      }
-
-      // Summary
-      logger.header('Promotion Summary');
-      logger.keyValue('Total', String(workspacesToPromote.length));
-      logger.keyValue('Promoted', String(promoted));
-      logger.keyValue('Failed', String(failed));
-      logger.blank();
-
-      if (failed > 0) {
-        logger.subheader('Failed Workspaces');
-        for (const result of results.filter((r) => !r.success)) {
-          logger.error(`${result.name}: ${result.error}`);
-        }
-        logger.blank();
-      }
-
-      if (promoted > 0) {
-        logger.subheader('Access Workspaces');
-        const baseUrl = targetUrl.replace('/api', '');
-        for (const result of results.filter((r) => r.success)) {
-          const w = workspacesToPromote.find((ws) => ws.name === result.name);
-          if (w) {
-            logger.info(`  ${w.name}: ${baseUrl}/workspace/${w.workspaceId}`);
-          }
-        }
-        logger.blank();
-      }
-
-      if (failed > 0) {
+        logger.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
-      } else {
-        logger.success('All workspaces promoted successfully!');
       }
     });
+
 }

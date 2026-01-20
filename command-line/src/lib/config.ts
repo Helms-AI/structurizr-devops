@@ -39,7 +39,9 @@ export function loadConfig(): Config {
   const envFile = path.join(projectRoot, 'containers', '.env');
 
   if (fs.existsSync(envFile)) {
-    dotenv.config({ path: envFile });
+    // Use override: true to ensure .env values take precedence over
+    // any existing environment variables (e.g., from parent shell)
+    dotenv.config({ path: envFile, override: true });
   }
 
   const currentQuarter = getCurrentQuarter(projectRoot);
@@ -107,6 +109,24 @@ export function getEnvironmentCredentials(
   return {
     url: config.structurizrUrl,
     ...creds,
+  };
+}
+
+/**
+ * Get workspace credentials for unified workspace (single workspace per quarter).
+ *
+ * Credentials use simple names without domain prefixes:
+ * - STRUCTURIZR_WORKSPACE_KEY
+ * - STRUCTURIZR_WORKSPACE_SECRET
+ *
+ * For Local: loaded from .env file
+ * For Integration/Production: provided via GitHub Actions environment
+ */
+export function getWorkspaceCredentials(_environment?: Environment): DomainCredentials {
+  return {
+    workspaceId: process.env.STRUCTURIZR_WORKSPACE_ID || '',
+    workspaceKey: process.env.STRUCTURIZR_WORKSPACE_KEY || '',
+    workspaceSecret: process.env.STRUCTURIZR_WORKSPACE_SECRET || '',
   };
 }
 

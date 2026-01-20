@@ -36,8 +36,8 @@ services:
   # Structurizr Lite (Optional - On-Demand Visual Editor)
   # =============================================================================
   # Single Lite instance for visual editing when needed.
-  # By default, points to the current quarter's platform domain.
-  # For other workspaces, use ./scripts/lite.sh instead.
+  # Points to the current quarter (unified workspace structure).
+  # For specific quarters, use ./scripts/lite.sh instead.
   #
   # Start with: nerdctl compose --profile lite up -d structurizr-lite
   # Access at: http://localhost:20100
@@ -49,7 +49,8 @@ services:
     ports:
       - "20100:8080"
     volumes:
-      - ../workspaces/current/domains/platform:/usr/local/structurizr:rw
+      # Mount the current quarter (unified workspace structure)
+      - ../workspaces/current:/usr/local/structurizr:rw
     environment:
       - STRUCTURIZR_WORKSPACE_FILENAME=workspace.dsl
     restart: unless-stopped
@@ -66,12 +67,14 @@ volumes:
 # =============================================================================
 # Quick Reference
 # =============================================================================
-# For on-demand editing of specific workspaces, use the lite.sh script:
+# The new unified structure has one workspace.dsl per quarter containing all
+# domains and perspectives. Use lite.sh for on-demand editing:
 #
-#   ./scripts/lite.sh platform              # Edit platform domain (current quarter)
-#   ./scripts/lite.sh orders                # Edit orders domain
+#   ./scripts/lite.sh                       # Edit current quarter (unified)
+#   ./scripts/lite.sh q2-2025               # Edit specific quarter
+#   ./scripts/lite.sh q2-2025 8080          # Custom port
+#
+# Legacy mode (domain/perspective structure) is still supported:
+#   ./scripts/lite.sh platform              # Edit platform domain
 #   ./scripts/lite.sh executive perspective # Edit executive perspective
-#   ./scripts/lite.sh platform q1-2025      # Edit archived quarter
-#
-# This avoids running 7 Lite containers simultaneously.
 # =============================================================================
