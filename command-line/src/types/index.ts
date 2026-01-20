@@ -26,6 +26,8 @@ export interface WorkspaceRegistry {
   lite_port: number;
   current_workspace: string;
   workspaces: Record<string, WorkspaceDefinition>;
+  /** Legacy root workspace ID (for branch-based quarters) */
+  workspace_id?: number;
 }
 
 export interface WorkspaceDefinition {

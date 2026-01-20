@@ -17,6 +17,7 @@ import { registerSecretsGetCommand } from './commands/secrets-get';
 import { registerSecretsSetCommand } from './commands/secrets-set';
 import { registerSecretsSyncCommand } from './commands/secrets-sync';
 import { registerSecretsInitCommand } from './commands/secrets-init';
+import { registerEnvironmentsInitCommand } from './commands/environments-init';
 import { registerVariablesListCommand } from './commands/variables-list';
 import { registerVariablesGetCommand } from './commands/variables-get';
 import { registerVariablesSetCommand } from './commands/variables-set';
@@ -24,6 +25,7 @@ import { registerSystemStartCommand } from './commands/system-start';
 import { registerSystemStopCommand } from './commands/system-stop';
 import { registerSystemRestartCommand } from './commands/system-restart';
 import { registerSystemLogsCommand } from './commands/system-logs';
+import { registerSystemDataResetCommand } from './commands/system-data-reset';
 
 const program = new Command();
 
@@ -51,6 +53,9 @@ registerSecretsSetCommand(program);
 registerSecretsSyncCommand(program);
 registerSecretsInitCommand(program);
 
+// Environments commands
+registerEnvironmentsInitCommand(program);
+
 // Variables commands
 registerVariablesListCommand(program);
 registerVariablesGetCommand(program);
@@ -64,5 +69,6 @@ registerSystemStartCommand(program);
 registerSystemStopCommand(program);
 registerSystemRestartCommand(program);
 registerSystemLogsCommand(program);
+registerSystemDataResetCommand(program);
 
 program.parse(process.argv);

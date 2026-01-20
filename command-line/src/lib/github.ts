@@ -260,3 +260,31 @@ export async function deleteEnvironmentSecret(name: string, environment: string)
     return false;
   }
 }
+
+/**
+ * Check if a GitHub environment exists
+ */
+export async function environmentExists(environment: string): Promise<boolean> {
+  const environments = await listEnvironments();
+  return environments.includes(environment);
+}
+
+/**
+ * Create a GitHub environment (idempotent - safe to call if already exists)
+ * @returns 'created' if new, 'exists' if already existed, 'failed' on error
+ */
+export async function createEnvironment(environment: string): Promise<'created' | 'exists' | 'failed'> {
+  try {
+    // Check if already exists
+    if (await environmentExists(environment)) {
+      return 'exists';
+    }
+
+    // Create the environment using GitHub API
+    await execa('gh', ['api', `repos/{owner}/{repo}/environments/${environment}`, '-X', 'PUT']);
+    return 'created';
+  } catch (error) {
+    logger.error(`Failed to create environment '${environment}': ${error instanceof Error ? error.message : String(error)}`);
+    return 'failed';
+  }
+}
