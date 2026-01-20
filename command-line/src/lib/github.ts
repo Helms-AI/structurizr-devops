@@ -247,3 +247,16 @@ export async function listEnvironmentSecrets(environment: string): Promise<GitHu
     return [];
   }
 }
+
+/**
+ * Delete an environment-specific secret
+ */
+export async function deleteEnvironmentSecret(name: string, environment: string): Promise<boolean> {
+  try {
+    await execa('gh', ['secret', 'delete', name, '--env', environment, '--yes']);
+    return true;
+  } catch (error) {
+    logger.error(`Failed to delete environment secret '${name}' for '${environment}': ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}

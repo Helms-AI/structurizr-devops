@@ -5,6 +5,8 @@ import { registerValidateCommand } from './commands/validate';
 import { registerPromoteCommand } from './commands/promote';
 import { registerWorkspaceInitCommand } from './commands/workspace-init';
 import { registerWorkspaceCreateCommand } from './commands/workspace-create';
+import { registerWorkspaceDemoteCommand } from './commands/workspace-demote';
+import { registerWorkspaceDeleteCommand } from './commands/workspace-delete';
 import { registerQuarterSnapshotCommand } from './commands/quarter-snapshot';
 import { registerQuarterSwitchCommand } from './commands/quarter-switch';
 import { registerQuarterNewCommand } from './commands/quarter-new';
@@ -38,6 +40,8 @@ registerListCommand(program);
 // Workspace commands
 registerWorkspaceInitCommand(program);
 registerWorkspaceCreateCommand(program);
+registerWorkspaceDemoteCommand(program);
+registerWorkspaceDeleteCommand(program);
 
 // Quarter commands
 registerQuarterSnapshotCommand(program);
