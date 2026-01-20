@@ -1,6 +1,6 @@
 # Structurizr DevOps
 
-A complete DevOps pipeline for promoting Structurizr architecture workspaces from local development through staging to production using GitHub Actions with a self-hosted runner.
+A DevOps pipeline for promoting Structurizr architecture workspaces from local development through staging to production using GitHub Actions with a self-hosted runner.
 
 ## Architecture
 
@@ -8,22 +8,20 @@ A complete DevOps pipeline for promoting Structurizr architecture workspaces fro
                             ┌─────────────────────────────────────────────────┐
                             │           LOCAL CONTAINER HOST (nerdctl)        │
                             │                                                 │
-                            │  ┌─────────────────────────┐  ┌──────────────┐ │
-Developer ──► Edit DSL ────►│  │   Structurizr Lite      │  │ On-Premises  │ │
-                            │  │   (Domain Workspaces)   │  │   :20000     │ │
-                            │  │                         │  │              │ │
-                            │  │  Domains:               │  └──────────────┘ │
-                            │  │  ├─ platform  (:20100)  │         ▲         │
-                            │  │  ├─ orders    (:20101)  │         │         │
-                            │  │  └─ notif.    (:20102)  │         │         │
-                            │  │                         │         │         │
-                            │  │  Perspectives:          │         │         │
-                            │  │  ├─ executive (:20200)  │         │         │
-                            │  │  ├─ security  (:20201)  │         │         │
-                            │  │  └─ technical (:20202)  │         │         │
-                            │  └─────────────────────────┘         │         │
-                            │                                      │         │
-                            │  ┌───────────────────────────────────┴───────┐ │
+                            │  ┌─────────────────┐  ┌──────────────────────┐ │
+Developer ──► Edit DSL ────►│  │ Structurizr     │  │ Structurizr          │ │
+                            │  │ Lite            │  │ On-Premises          │ │
+                            │  │ :20100          │  │ :20000               │ │
+                            │  │ (on-demand)     │  │ (always running)     │ │
+                            │  └────────┬────────┘  └───────────▲──────────┘ │
+                            │           │                       │            │
+                            │           │ Save to DSL           │ Promote    │
+                            │           ▼                       │            │
+                            │  ┌────────────────────────────────┴──────────┐ │
+                            │  │      workspaces/current/workspace.dsl     │ │
+                            │  └───────────────────────────────────────────┘ │
+                            │                                                 │
+                            │  ┌───────────────────────────────────────────┐ │
                             │  │           Self-Hosted Runner              │ │
                             │  │    (GitHub Actions + Structurizr CLI)     │ │
                             │  └───────────────────────────────────────────┘ │
@@ -36,64 +34,63 @@ Developer ──► Edit DSL ────►│  │   Structurizr Lite      │
                                               └─────────────────┘
 ```
 
+**Key Points:**
+- **Unified workspace** per quarter (single `workspace.dsl` at root)
+- **On-Premises** (:20000) is the promotion target, always running
+- **Lite** (:20100) is for visual editing, started on-demand via `./scripts/lite.sh`
+- **Tagging strategy** enables filtered views for different stakeholders
+
 ## Quick Start
 
 ### 1. Generate Admin API Key
 
 ```bash
-./scripts/generate-api-key.sh
+./cli admin:generate-key
 ```
 
 Copy the bcrypt hash to `containers/onpremises/structurizr.properties`.
 
-### 2. Start Local Environment
+### 2. Start On-Premises
 
 ```bash
-cd containers
-nerdctl compose up -d
+./cli system:start
 ```
 
-### 3. Access Services
+### 3. Initialize Workspace
+
+```bash
+./cli workspace:init
+```
+
+This creates workspace credentials in On-Premises and saves them to `.env`.
+
+### 4. Edit with Structurizr Lite
+
+```bash
+./scripts/lite.sh              # Edit current quarter
+./scripts/lite.sh q2-2025      # Edit specific quarter
+./scripts/lite.sh q2-2025 8080 # Custom port
+```
+
+### 5. Access Services
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| **On-Premises** | http://localhost:20000 | Promotion target |
-| **Domains** | | |
-| Platform | http://localhost:20100 | Core platform workspace |
-| Orders | http://localhost:20101 | Order domain workspace |
-| Notifications | http://localhost:20102 | Notification domain workspace |
-| **Perspectives** | | |
-| Executive | http://localhost:20200 | Executive dashboard view |
-| Security | http://localhost:20201 | Security architecture view |
-| Technical | http://localhost:20202 | Developer-focused view |
+| **On-Premises** | http://localhost:20000 | Promotion target (always running) |
+| **Lite** | http://localhost:20100 | Visual editor (on-demand) |
 
-### 4. Initialize Domain Workspaces
+### 6. Configure GitHub Secrets
 
-```bash
-export STRUCTURIZR_ADMIN_API_KEY=your-plaintext-key
-./scripts/init-workspace.sh platform
-./scripts/init-workspace.sh orders
-./scripts/init-workspace.sh notifications
-```
-
-### 5. Configure GitHub Secrets
-
-Add the following secrets to your GitHub repository:
+Add the following secrets to your GitHub repository environments (Integration, Production):
 
 | Secret | Description |
 |--------|-------------|
-| `STRUCTURIZR_URL` | `http://localhost:20000/api` |
-| `STRUCTURIZR_PLATFORM_WORKSPACE_ID` | Platform workspace ID |
-| `STRUCTURIZR_PLATFORM_WORKSPACE_KEY` | Platform workspace API key |
-| `STRUCTURIZR_PLATFORM_WORKSPACE_SECRET` | Platform workspace API secret |
-| `STRUCTURIZR_ORDERS_WORKSPACE_ID` | Orders workspace ID |
-| `STRUCTURIZR_ORDERS_WORKSPACE_KEY` | Orders workspace API key |
-| `STRUCTURIZR_ORDERS_WORKSPACE_SECRET` | Orders workspace API secret |
-| `STRUCTURIZR_NOTIFICATIONS_WORKSPACE_ID` | Notifications workspace ID |
-| `STRUCTURIZR_NOTIFICATIONS_WORKSPACE_KEY` | Notifications workspace API key |
-| `STRUCTURIZR_NOTIFICATIONS_WORKSPACE_SECRET` | Notifications workspace API secret |
+| `STRUCTURIZR_URL` | API URL (e.g., `http://localhost:20000/api`) |
+| `STRUCTURIZR_WORKSPACE_ID` | Workspace ID (e.g., `6`) |
+| `STRUCTURIZR_WORKSPACE_KEY` | Workspace API key |
+| `STRUCTURIZR_WORKSPACE_SECRET` | Workspace API secret |
 
-### 6. Setup Self-Hosted Runner
+### 7. Setup Self-Hosted Runner
 
 ```bash
 ./scripts/setup-runner.sh
@@ -106,81 +103,197 @@ Follow the interactive guide to configure your GitHub Actions runner.
 ```
 structurizr-devops/
 ├── .github/workflows/
-│   ├── ci.yml                  # Validation on all branches
-│   └── promote.yml             # Unified promotion (integration + production)
+│   ├── ci.yml                     # Validation + CLI tests
+│   └── promote.yml                # Promote to environments
 ├── containers/
-│   ├── docker-compose.yml      # Full local stack
+│   ├── docker-compose.yml         # On-Premises service
 │   ├── onpremises/
 │   │   └── structurizr.properties
 │   └── .env.example
 ├── workspaces/
-│   ├── domains/                # Business domain workspaces
-│   │   ├── platform/           # Core platform architecture
-│   │   │   └── workspace.dsl
-│   │   ├── orders/             # Order management domain
-│   │   │   └── workspace.dsl
-│   │   └── notifications/      # Notification domain
-│   │       └── workspace.dsl
-│   ├── perspectives/           # Stakeholder-specific views
-│   │   ├── executive/          # C-level dashboard view
-│   │   │   └── workspace.dsl
-│   │   ├── security/           # Security architecture view
-│   │   │   └── workspace.dsl
-│   │   └── technical/          # Developer-focused view
-│   │       └── workspace.dsl
+│   ├── current -> q2-2025/        # Symlink to active quarter
+│   ├── q2-2025/                   # Current quarter (unified)
+│   │   ├── workspace.dsl          # Main entry point
+│   │   ├── model/
+│   │   │   ├── people.dsl         # Actors and stakeholders
+│   │   │   ├── external-systems.dsl
+│   │   │   └── domains/
+│   │   │       ├── platform/system.dsl
+│   │   │       ├── orders/system.dsl
+│   │   │       └── notifications/system.dsl
+│   │   ├── views/
+│   │   │   ├── landscape.dsl      # System landscape
+│   │   │   ├── domains/           # Domain-focused views
+│   │   │   │   ├── platform.dsl
+│   │   │   │   ├── orders.dsl
+│   │   │   │   └── notifications.dsl
+│   │   │   └── perspectives/      # Stakeholder views
+│   │   │       ├── executive.dsl
+│   │   │       ├── security.dsl
+│   │   │       └── technical.dsl
+│   │   └── styles/
+│   │       └── theme.dsl
 │   └── shared/
-│       ├── base-model.dsl      # Shared people/systems
-│       ├── styles.dsl          # Shared visual styling
-│       └── domains.yaml        # Domain registry/catalog
+│       └── registry.yaml          # Workspace registry
+├── command-line/                  # TypeScript CLI source
 ├── scripts/
-│   ├── domain-create.sh        # Create new domain scaffold
-│   ├── init-workspace.sh       # Create workspace via Admin API
-│   ├── validate-all.sh         # Local validation
-│   ├── promote.sh              # Manual promotion
-│   ├── setup-runner.sh         # Runner setup guide
-│   └── generate-api-key.sh     # Generate bcrypt API key
+│   ├── lite.sh                    # On-demand Lite editor
+│   ├── setup-runner.sh            # Runner configuration
+│   └── generate-api-key.sh        # Legacy key generation
+├── cli                            # CLI wrapper (auto-builds)
 └── README.md
 ```
 
-## Domain-Based Architecture
+## CLI Commands
 
-### Domains vs Perspectives
+Use `./cli` from the project root (auto-builds on first run):
 
-**Domains** represent business capabilities owned by specific teams:
-- `platform` - Core infrastructure services (Platform Team)
-- `orders` - Order management (Commerce Team)
-- `notifications` - Customer communications (Engagement Team)
+### Workspace Management
 
-**Perspectives** are aggregate views for different stakeholders:
-- `executive` - High-level business capability view for leadership
-- `security` - Security architecture with trust boundaries and data flows
-- `technical` - Developer-focused view with implementation details
+```bash
+./cli workspace:list                    # List quarters and workspace info
+./cli workspace:validate                # Validate current quarter
+./cli workspace:validate -q q1-2025     # Validate specific quarter
+./cli workspace:promote                 # Promote current quarter to Local
+./cli workspace:promote -e integration  # Promote to Integration
+./cli workspace:promote -e production   # Promote to Production
+./cli workspace:promote -q q1-2025      # Promote specific quarter
+./cli workspace:promote --dry-run       # Show what would be promoted
+./cli workspace:init                    # Initialize workspace in On-Premises
+./cli workspace:demote                  # Remove workspace from On-Premises
+./cli workspace:delete                  # Alias for demote -e Local
+```
+
+### Quarterly Operations
+
+```bash
+./cli quarter:new q3-2025               # Create new quarter directory
+./cli quarter:switch q3-2025            # Update current symlink
+./cli quarter:snapshot q2-2025          # Create git tag for milestone
+```
+
+### Secrets Management
+
+```bash
+./cli secrets:list -e local             # List secrets from .env file
+./cli secrets:list -e integration       # List GitHub secrets for Integration
+./cli secrets:get NAME -e local         # Get secret info
+./cli secrets:set NAME value -e local   # Set a secret
+./cli secrets:init -e production        # Interactive setup for Production
+./cli secrets:sync                      # Sync to GitHub Actions
+```
+
+### Variables Management
+
+```bash
+./cli variables:list -e local           # List variables from .env file
+./cli variables:get NAME -e local       # Get a variable
+./cli variables:set NAME value -e local # Set a variable
+```
+
+### System Control
+
+```bash
+./cli system:start                      # Start On-Premises container
+./cli system:start --logs               # Start and follow logs
+./cli system:stop                       # Stop container
+./cli system:restart                    # Restart container
+./cli system:logs -f                    # Follow logs
+```
+
+### Admin Operations
+
+```bash
+./cli admin:generate-key                # Generate bcrypt API key
+./cli admin:generate-key my-secret-key  # Generate from specific key
+```
+
+## Unified Workspace Architecture
+
+### Single Workspace Per Quarter
+
+The project uses a unified structure where each quarter contains a single `workspace.dsl` that composes all domains and perspectives:
+
+```
+workspaces/
+├── current -> q2-2025/           # Symlink to active quarter
+├── q2-2025/                      # Current quarter
+│   ├── workspace.dsl             # Single entry point
+│   ├── model/                    # All models in one place
+│   ├── views/                    # All views
+│   └── styles/                   # Shared styling
+└── shared/
+    └── registry.yaml             # Quarter/domain metadata
+```
+
+### Workspace ID Strategy
+
+- **Single workspace ID** (e.g., `6`) for the entire project
+- **Structurizr branches** for quarterly isolation
+- URLs: `/workspace/6/q2-2025`, `/workspace/6/q1-2025`
+
+### Tagging Strategy
+
+Elements are tagged to enable filtered perspective views:
+
+| Tag Category | Tags | Purpose |
+|--------------|------|---------|
+| Domain | `Platform`, `Orders`, `Notifications` | Filter by business domain |
+| Visibility | `Core`, `Supporting`, `Generic` | Executive view filtering |
+| Security | `PII`, `Financial`, `Public`, `PCI` | Security perspective |
+| Technical | `Infrastructure`, `Application`, `Data` | Technical perspective |
+
+Example in DSL:
+```dsl
+softwareSystem "Order Service" {
+    tags "Orders" "Core" "Financial"
+}
+```
+
+Views can then filter by tags:
+```dsl
+systemLandscape "Executive-View" {
+    include element.tag==Core
+}
+```
 
 ### Adding a New Domain
 
-```bash
-# Create domain scaffold
-./scripts/domain-create.sh inventory "Warehouse Team" "Inventory management"
+1. Create model file:
+   ```bash
+   touch workspaces/current/model/domains/inventory/system.dsl
+   ```
 
-# Initialize in Structurizr On-Premises
-export STRUCTURIZR_ADMIN_API_KEY=your-key
-./scripts/init-workspace.sh inventory
+2. Add include to main workspace:
+   ```dsl
+   # In workspace.dsl
+   !include model/domains/inventory/system.dsl
+   ```
 
-# Configure GitHub secrets (shown in init output)
-```
+3. Create domain view:
+   ```bash
+   touch workspaces/current/views/domains/inventory.dsl
+   ```
 
-### Domain Registry
-
-The `workspaces/shared/domains.yaml` file serves as a catalog of all domains with metadata including owner, port, and dependencies.
+4. Update registry:
+   ```yaml
+   # In shared/registry.yaml
+   domains:
+     inventory:
+       name: Inventory
+       description: Warehouse and stock management
+       owner: Warehouse Team
+       tags: [Inventory, Core]
+   ```
 
 ## Workflows
 
 ### CI - Validate Workspaces (ci.yml)
 
-- **Trigger**: Push to any branch, PR to main/develop (when workspace files change)
-- **Action**: Validates all domain and perspective DSL files in `workspaces/current/`
+- **Trigger**: Push to any branch, PR to main/develop
+- **Action**: Validates DSL files and runs CLI tests
 - **Runner**: `self-hosted, structurizr, nerdctl`
-- **Jobs**: Discovers workspaces dynamically, validates each in parallel
+- **Jobs**: Validates workspaces in `workspaces/current/`
 
 ### Promote Workspaces (promote.yml)
 
@@ -188,46 +301,36 @@ Unified promotion workflow for all environments.
 
 | Trigger | Environment | Confirmation |
 |---------|-------------|--------------|
-| Push to `develop` | integration | None (auto) |
-| Manual dispatch | integration | None |
-| Manual dispatch | production | Must type "PRODUCTION" |
+| Push to `develop` | Integration | None (auto) |
+| Manual dispatch | Integration | None |
+| Manual dispatch | Production | Must type "PRODUCTION" |
 
-- **Action**: Validates then promotes domains and perspectives
-- **Options**: Promote all workspaces or select specific one
-- **Credentials**: Uses environment-specific secrets (e.g., `STRUCTURIZR_PLATFORM_WORKSPACE_KEY_INT`)
+- **Action**: Validates then promotes to Structurizr On-Premises
+- **Branch**: Uses quarterly branches for isolation
 
 ## Quarterly Architecture Management
 
-The repository uses a directory-based approach for quarterly architecture management. All quarters exist as directories, with a `current` symlink pointing to the active quarter.
-
-### Architecture Overview
+### Timeline-Based Structure
 
 ```
 workspaces/
 ├── current -> q2-2025/           # Symlink to active quarter
-├── q1-2025/                      # Past quarter (archive)
+├── q1-2025/                      # Past quarter (archived)
 ├── q2-2025/                      # Current quarter (active)
-├── q3-2025/                      # Future quarter (planning)
-└── shared/                       # Cross-cutting resources
+└── q3-2025/                      # Future quarter (planning)
 ```
 
-Timeline determines meaning:
-- **Past quarter** = Archive (e.g., `q1-2025/` when we're in Q2)
-- **Current quarter** = Active development (pointed to by `current` symlink)
-- **Future quarter** = Planning (e.g., `q3-2025/` when we're in Q2)
-
-### Deployment Model
-
-- **Single version per workspace**: Promotion overwrites previous content
-- **Any quarter deployable**: Can promote from any `workspaces/{quarter}/` directory
-- **History in git**: Use git tags (`q1-2025-final`) and git history for rollback
+- **Past quarter** = Archive (e.g., `q1-2025/` when in Q2)
+- **Current quarter** = Active development (symlinked)
+- **Future quarter** = Planning (e.g., `q3-2025/` when in Q2)
 
 ### Quarterly Workflow
 
 #### Normal Development
 
 1. Work in `workspaces/current/` (points to active quarter)
-2. Push to `main` branch → CI validates → promote to Integration/Production
+2. Push to `develop` → auto-promotes to Integration
+3. Merge to `main` → manual promote to Production
 
 #### Start Planning Next Quarter
 
@@ -241,126 +344,50 @@ Timeline determines meaning:
 ```bash
 ./cli quarter:snapshot q2-2025            # Tag q2-2025-final in git
 ./cli quarter:switch q3-2025              # Update current symlink
-./cli promote --all                       # Deploy new quarter to Structurizr
+./cli workspace:promote                   # Deploy new quarter
 ```
 
-#### Deploy Historical Quarter (for review)
+#### Deploy Historical Quarter
 
 ```bash
-./cli promote platform -q q1-2025 -e Integration
-# Deploys Q1 architecture to Integration environment
-```
-
-### CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `./cli quarter:new <quarter>` | Create new quarter directory (for planning) |
-| `./cli quarter:switch <quarter>` | Update `current` symlink to different quarter |
-| `./cli quarter:snapshot <quarter>` | Create git tag for quarterly milestone |
-
-### Accessing Historical Architecture
-
-| Method | Command |
-|--------|---------|
-| Git checkout | `git checkout q1-2025-final` |
-| Promote | `./cli promote --all -q q1-2025` |
-
-### Shared Resources
-
-The `workspaces/shared/` directory contains elements shared across domains:
-
-- **base-model.dsl**: Common people, systems, and relationships
-- **styles.dsl**: Standard visual styling for all diagrams
-- **domains.yaml**: Domain registry with metadata
-
-Include in workspace files:
-```dsl
-workspace "My Workspace" {
-    model {
-        !include ../../shared/base-model.dsl
-        # Domain-specific elements here
-    }
-    views {
-        # ... views ...
-        !include ../../shared/styles.dsl
-    }
-}
+./cli workspace:promote -q q1-2025 -e integration
+# Deploys Q1 architecture for review
 ```
 
 ## Local Development
 
-### Validate Domains
+### Validate Workspace
 
 ```bash
-# Validate all domains
-./scripts/validate-all.sh
-
-# Validate specific domain
-./scripts/validate-all.sh platform
+./cli workspace:validate                  # Validate current quarter
+./cli workspace:validate -q q2-2025       # Validate specific quarter
 ```
 
-### Manual Promotion
+### Promote to Local On-Premises
 
 ```bash
-# Set credentials
-export STRUCTURIZR_URL=http://localhost:20000/api
-export STRUCTURIZR_WORKSPACE_ID=1
-export STRUCTURIZR_WORKSPACE_KEY=your-key
-export STRUCTURIZR_WORKSPACE_SECRET=your-secret
-
-# Promote
-./scripts/promote.sh platform
+./cli workspace:promote                   # Promote to local
+./cli workspace:promote --dry-run         # Preview what will be promoted
 ```
 
 ### View Logs
 
 ```bash
-cd containers
-nerdctl compose logs -f structurizr-onpremises
+./cli system:logs                         # View recent logs
+./cli system:logs -f                      # Follow logs
 ```
 
 ### Restart Services
 
 ```bash
-cd containers
-nerdctl compose restart
+./cli system:restart                      # Restart On-Premises
 ```
 
-### Stop All Services
+### Stop Services
 
 ```bash
-cd containers
-nerdctl compose down
+./cli system:stop                         # Stop On-Premises
 ```
-
-## Business Domains
-
-### Platform Domain
-
-Core platform infrastructure services:
-- API Gateway
-- Auth Service
-- User Service
-- Platform Database
-- Message Queue
-
-### Orders Domain
-
-Order management business domain:
-- Order API
-- Order Worker
-- Order Database
-- Order Cache
-
-### Notifications Domain
-
-Customer communication domain:
-- Notification API
-- Notification Worker
-- Template Engine
-- Notification Database
-- Notification Queue
 
 ## Troubleshooting
 
@@ -368,9 +395,10 @@ Customer communication domain:
 
 ```bash
 # Check container status
-nerdctl compose ps
+./cli system:logs
 
-# View logs
+# Or manually
+cd containers && nerdctl compose ps
 nerdctl compose logs structurizr-onpremises
 ```
 
@@ -380,13 +408,13 @@ nerdctl compose logs structurizr-onpremises
 # Run validation with verbose output
 nerdctl run --rm -v "$PWD:/workspaces:ro" \
   structurizr/cli:latest validate \
-  -workspace /workspaces/workspaces/domains/platform/workspace.dsl
+  -workspace /workspaces/workspaces/current/workspace.dsl
 ```
 
 ### Promotion fails
 
 1. Verify On-Premises is running: `curl http://localhost:20000/health`
-2. Check workspace credentials are correct
+2. Check workspace credentials: `./cli secrets:list -e local`
 3. Verify workspace ID exists in On-Premises
 
 ### Runner not picking up jobs
@@ -394,6 +422,12 @@ nerdctl run --rm -v "$PWD:/workspaces:ro" \
 1. Check runner status: `./svc.sh status`
 2. Verify labels match: `self-hosted, structurizr, nerdctl`
 3. Check GitHub runner page for errors
+
+### List available quarters
+
+```bash
+./cli workspace:list
+```
 
 ## References
 
