@@ -1,65 +1,20 @@
 lite_port: 20100
-current_quarter: q2-2025
-quarters:
-  q2-2025:
-    name: Q2 2025
-    description: Q2 2025 architecture workspace
-    branch: q2-2025
+current_workspace: q2-2026
+workspaces:
+  q1-2026:
+    name: Q1 2026
+    description: Q1 2026 architecture workspace
     status: active
     workspace_file: workspace.dsl
-  q1-2025:
-    name: Q1 2025
-    description: Q1 2025 architecture workspace (archived)
-    branch: q1-2025
-    status: archived
+    workspace_id: 1
+    api_key: 1452e23e-daa6-4d83-b1c5-05945ebedca0
+    api_secret: 9f4d3033-4056-4640-801b-cdca6b06d370
+  q2-2026:
+    name: Q2 2026
+    description: Q2 2026 architecture workspace
+    status: active
     workspace_file: workspace.dsl
-domains:
-  platform:
-    name: Platform
-    description: Core platform infrastructure and shared services
-    owner: Platform Team
-    color: "#1168bd"
-    tags:
-      - Platform
-      - Core
-      - Infrastructure
-  orders:
-    name: Orders
-    description: Order management and fulfillment
-    owner: Commerce Team
-    color: "#2e7d32"
-    tags:
-      - Orders
-      - Core
-      - Financial
-  notifications:
-    name: Notifications
-    description: Multi-channel customer communications
-    owner: Engagement Team
-    color: "#7b1fa2"
-    tags:
-      - Notifications
-      - Core
-perspectives:
-  executive:
-    name: Executive
-    description: High-level business architecture for leadership
-    filter_tags:
-      - Core
-      - Executive
-  security:
-    name: Security
-    description: Security-focused view with trust boundaries
-    filter_tags:
-      - Security
-      - PII
-      - Financial
-      - PCI
-  technical:
-    name: Technical
-    description: Developer-focused with implementation details
-    filter_tags:
-      - Technical
-      - Infrastructure
-      - Application
-workspace_id: 6
+    workspace_id: 2
+    api_key: d0eb0ccd-f64a-4ef0-9627-7c1ae6940472
+    api_secret: 738574c6-de64-45ea-bc36-d2631ac53629
+    parent: q1-2026

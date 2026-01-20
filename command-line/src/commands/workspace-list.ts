@@ -1,146 +1,79 @@
 import { Command } from 'commander';
-import { loadConfig, getDomainCredentials } from '../lib/config';
-import {
-  listDomains,
-  listPerspectives,
-  listQuarters,
-  listAllWorkspaces,
-  loadDomainsRegistry,
-  getDomainFromRegistry,
-  getPerspectiveFromRegistry,
-} from '../lib/domains';
+import { loadConfig } from '../lib/config';
+import { loadRegistry, listWorkspaces, getCurrentWorkspace } from '../lib/workspace-registry';
 import { logger } from '../lib/logger';
 
 export function registerListCommand(program: Command): void {
   program
     .command('workspace:list')
     .description('List all available workspaces')
-    .option('-q, --quarter <quarter>', 'Quarter to list (default: current)', 'current')
     .option('-v, --verbose', 'Show detailed information')
-    .option('--quarters', 'List available quarters')
-    .action(async (options: { quarter?: string; verbose?: boolean; quarters?: boolean }) => {
+    .action(async (options: { verbose?: boolean }) => {
       const config = loadConfig();
 
-      // List quarters mode
-      if (options.quarters) {
-        logger.header('Available Quarters');
-
-        const quarters = listQuarters(config);
-        if (quarters.length === 0) {
-          logger.warn('No quarters found');
-          return;
-        }
-
-        const registry = loadDomainsRegistry(config);
-        const currentQuarter = registry?.current_quarter || 'unknown';
-
-        for (const quarter of quarters) {
-          const isCurrent = quarter === currentQuarter;
-          const marker = isCurrent ? ' (current)' : '';
-          console.log(`  ${quarter}${marker}`);
-        }
-
-        logger.blank();
-        logger.keyValue('Current quarter', currentQuarter);
-        logger.info('Symlink: workspaces/current -> ' + currentQuarter);
-        return;
-      }
-
-      const quarter = options.quarter || 'current';
-
       logger.header('Available Workspaces');
-      logger.keyValue('Quarter', quarter);
-      logger.blank();
 
-      const workspaces = listAllWorkspaces(config, quarter);
-
+      const workspaces = listWorkspaces(config);
       if (workspaces.length === 0) {
-        logger.warn(`No workspaces found in quarter '${quarter}'`);
+        logger.warn('No workspaces found');
         logger.blank();
-        logger.info('Available quarters:');
-        const quarters = listQuarters(config);
-        if (quarters.length > 0) {
-          logger.list(quarters);
-        } else {
-          logger.info('  (none)');
-        }
+        logger.info('Create a workspace with: ./cli workspace:create <name>');
         return;
       }
 
-      const registry = loadDomainsRegistry(config);
-      const domains = workspaces.filter((w) => w.type === 'domain');
-      const perspectives = workspaces.filter((w) => w.type === 'perspective');
+      const registry = loadRegistry(config);
+      let currentWorkspace: string | null = null;
+      try {
+        currentWorkspace = getCurrentWorkspace(config);
+      } catch {
+        // No current workspace set
+      }
 
-      // List domains
-      if (domains.length > 0) {
-        logger.subheader('Domains');
+      // Print header
+      console.log('');
+      console.log('  Workspace    Workspace ID   Parent       Status');
+      console.log('  ──────────   ────────────   ──────────   ──────────');
 
-        for (const workspace of domains) {
-          const domainInfo = getDomainFromRegistry(config, workspace.name);
-          const credentials = getDomainCredentials(workspace.name);
+      for (const workspace of workspaces) {
+        const workspaceDef = registry?.workspaces?.[workspace];
+        const isCurrent = workspace === currentWorkspace;
+        const marker = isCurrent ? '*' : ' ';
 
-          if (options.verbose) {
-            logger.info(`--- ${workspace.name} ---`);
-            if (domainInfo) {
-              logger.keyValue('Name', domainInfo.name);
-              logger.keyValue('Description', domainInfo.description);
-              logger.keyValue('Owner', domainInfo.owner);
-              logger.keyValue('Workspace ID', String(domainInfo.workspace_id || 'not set'));
-              logger.keyValue('Port', String(domainInfo.port));
-              logger.keyValue('Tags', domainInfo.tags?.join(', ') || 'none');
-            }
-            logger.keyValue('Credentials', credentials.workspaceKey ? 'configured' : 'missing');
-            logger.blank();
-          } else {
-            const wsId = workspace.workspaceId ? `[ID: ${workspace.workspaceId}]` : '[no ID]';
-            const port = domainInfo?.port ? `:${domainInfo.port}` : '';
-            console.log(`  ${workspace.name}${port} ${wsId}`);
+        // Workspace ID
+        const wsId = workspaceDef?.workspace_id
+          ? String(workspaceDef.workspace_id).padEnd(12)
+          : 'not set'.padEnd(12);
+
+        // Parent
+        const parent = (workspaceDef?.parent || '-').padEnd(12);
+
+        // Status
+        const status = workspaceDef?.status || 'unknown';
+
+        console.log(`${marker} ${workspace.padEnd(12)} ${wsId} ${parent} ${status}`);
+
+        if (options.verbose && workspaceDef) {
+          console.log(`    Name: ${workspaceDef.name || workspace}`);
+          console.log(`    Description: ${workspaceDef.description || 'N/A'}`);
+          if (workspaceDef.api_key) {
+            console.log(`    API Key: ${workspaceDef.api_key.substring(0, 8)}...`);
           }
-        }
-
-        if (!options.verbose) {
-          logger.blank();
+          console.log('');
         }
       }
 
-      // List perspectives
-      if (perspectives.length > 0) {
-        logger.subheader('Perspectives');
-
-        for (const workspace of perspectives) {
-          const perspectiveInfo = getPerspectiveFromRegistry(config, workspace.name);
-          const credentials = getDomainCredentials(workspace.name);
-
-          if (options.verbose) {
-            logger.info(`--- ${workspace.name} ---`);
-            if (perspectiveInfo) {
-              logger.keyValue('Name', perspectiveInfo.name);
-              logger.keyValue('Description', perspectiveInfo.description);
-              logger.keyValue('Workspace ID', String(perspectiveInfo.workspace_id || 'not set'));
-              logger.keyValue('Port', String(perspectiveInfo.port));
-              logger.keyValue('Includes', perspectiveInfo.includes?.join(', ') || 'none');
-            }
-            logger.keyValue('Credentials', credentials.workspaceKey ? 'configured' : 'missing');
-            logger.blank();
-          } else {
-            const wsId = workspace.workspaceId ? `[ID: ${workspace.workspaceId}]` : '[no ID]';
-            const port = perspectiveInfo?.port ? `:${perspectiveInfo.port}` : '';
-            console.log(`  ${workspace.name}${port} ${wsId}`);
-          }
-        }
-
-        if (!options.verbose) {
-          logger.blank();
-        }
+      logger.blank();
+      if (currentWorkspace) {
+        logger.keyValue('Current workspace', currentWorkspace);
+      } else {
+        logger.warn('No current workspace set');
       }
-
-      // Summary
-      logger.keyValue('Total workspaces', String(workspaces.length));
+      logger.blank();
+      logger.info('Legend: * = current workspace');
 
       if (!options.verbose) {
         logger.blank();
         logger.info('Use --verbose for detailed information');
-        logger.info('Use --quarters to list available quarters');
       }
     });
 }

@@ -1,14 +1,14 @@
 import { Command } from 'commander';
 import ora from 'ora';
 import { loadConfig } from '../lib/config';
-import { listAllWorkspaces } from '../lib/domains';
+import { getWorkspacesForSecrets } from '../lib/workspace-registry';
 import { checkGitHubCli, setSecret, listSecrets, generateSecretNames, getRepoPath } from '../lib/github';
 import { logger } from '../lib/logger';
 
 export function registerSecretsSyncCommand(program: Command): void {
   program
     .command('secrets:sync')
-    .description('Sync workspace IDs from domains.yaml to GitHub Actions secrets')
+    .description('Sync workspace IDs from registry.yaml to GitHub Actions secrets')
     .option('--dry-run', 'Show what would be synced without making changes')
     .action(async (options: { dryRun?: boolean }) => {
       const config = loadConfig();
@@ -40,7 +40,7 @@ export function registerSecretsSyncCommand(program: Command): void {
       }
 
       // Get all workspaces with their IDs
-      const workspaces = listAllWorkspaces(config, 'current');
+      const workspaces = getWorkspacesForSecrets(config);
       const existingSecrets = await listSecrets();
       const existingNames = new Set(existingSecrets.map((s) => s.name));
 
@@ -49,7 +49,7 @@ export function registerSecretsSyncCommand(program: Command): void {
 
       for (const workspace of workspaces) {
         if (!workspace.workspaceId) {
-          logger.warn(`${workspace.name}: No workspace_id in domains.yaml`);
+          logger.warn(`${workspace.name}: No workspace_id in registry.yaml`);
           continue;
         }
 
@@ -73,7 +73,7 @@ export function registerSecretsSyncCommand(program: Command): void {
 
       if (toSync.length === 0) {
         logger.warn('No workspaces with workspace_id found');
-        logger.info('Add workspace_id to domains.yaml for each workspace');
+        logger.info('Add workspace_id to registry.yaml for each workspace');
         return;
       }
 

@@ -32,19 +32,24 @@ export interface RunContainerOptions {
   env?: Record<string, string>;
   config: Config;
   stream?: boolean;
+  workdir?: string;
 }
 
 export async function runContainer(
   options: RunContainerOptions
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const runtime = await detectContainerRuntime();
-  const { image, args, volumes = [], env = {}, config, stream = false } = options;
+  const { image, args, volumes = [], env = {}, config, stream = false, workdir } = options;
 
   const cmdArgs: string[] = ['run', '--rm'];
 
   for (const vol of volumes) {
     const mode = vol.readonly ? 'ro' : 'rw';
     cmdArgs.push('-v', `${vol.host}:${vol.container}:${mode}`);
+  }
+
+  if (workdir) {
+    cmdArgs.push('-w', workdir);
   }
 
   cmdArgs.push('-e', `JAVA_TOOL_OPTIONS=${config.javaSSLOpts}`);
@@ -197,4 +202,107 @@ export async function pushWorkspaceWithOptions(options: PushWorkspaceOptions): P
     options.key,
     options.secret
   );
+}
+
+/**
+ * Push workspace JSON content to Structurizr using the CLI.
+ * This writes the JSON to a temp file and pushes it.
+ */
+export async function pushWorkspaceJson(
+  config: Config,
+  url: string,
+  workspaceId: string,
+  key: string,
+  secret: string,
+  workspace: unknown
+): Promise<boolean> {
+  const fs = await import('fs');
+  const path = await import('path');
+
+  // Create temp directory if needed
+  const tempDir = path.join(config.projectRoot, 'tmp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  // Write workspace JSON to temp file
+  const tempFile = path.join(tempDir, `workspace-${workspaceId}-${Date.now()}.json`);
+  fs.writeFileSync(tempFile, JSON.stringify(workspace, null, 2));
+
+  try {
+    // Push using CLI
+    const result = await pushWorkspace(
+      config,
+      tempFile,
+      url,
+      workspaceId,
+      key,
+      secret
+    );
+    return result;
+  } finally {
+    // Clean up temp file
+    if (fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+  }
+}
+
+/**
+ * Pull workspace JSON from Structurizr using the CLI.
+ * This uses the official Structurizr CLI which has working HMAC authentication.
+ */
+export async function pullWorkspaceJson(
+  config: Config,
+  url: string,
+  workspaceId: string,
+  key: string,
+  secret: string
+): Promise<unknown> {
+  const containerUrl = translateUrlForContainer(url);
+
+  const args = [
+    'pull',
+    '-url',
+    containerUrl,
+    '-id',
+    workspaceId,
+    '-key',
+    key,
+    '-secret',
+    secret,
+  ];
+
+  // Create temp directory if needed
+  const fs = await import('fs');
+  const path = await import('path');
+  const tempDir = path.join(config.projectRoot, 'tmp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  // Run CLI with working directory set to mounted path
+  // The CLI saves to its current working directory as structurizr-{id}-workspace.json
+  const result = await runContainer({
+    image: 'structurizr/cli:latest',
+    args,
+    volumes: [{ host: tempDir, container: '/output', readonly: false }],
+    config,
+    stream: false,
+    workdir: '/output',
+  });
+
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to pull workspace: ${result.stderr || result.stdout}`);
+  }
+
+  // Read the JSON file from the temp directory
+  const expectedFile = path.join(tempDir, `structurizr-${workspaceId}-workspace.json`);
+  if (!fs.existsSync(expectedFile)) {
+    throw new Error(`Workspace JSON file not found at ${expectedFile}`);
+  }
+
+  const content = fs.readFileSync(expectedFile, 'utf-8');
+  fs.unlinkSync(expectedFile); // Clean up
+  return JSON.parse(content);
 }

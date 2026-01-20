@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import ora from 'ora';
 import * as readline from 'readline';
 import { loadConfig } from '../lib/config';
-import { listAllWorkspaces } from '../lib/domains';
+import { getWorkspacesForSecrets } from '../lib/workspace-registry';
 import {
   checkGitHubCli,
   setSecret,
@@ -157,7 +157,7 @@ export function registerSecretsInitCommand(program: Command): void {
 
       // Configure workspace secrets
       if (!options.skipWorkspaces) {
-        const workspaces = listAllWorkspaces(config, 'current');
+        const workspaces = getWorkspacesForSecrets(config);
 
         if (workspaces.length === 0) {
           logger.warn('No workspaces found');
@@ -169,7 +169,7 @@ export function registerSecretsInitCommand(program: Command): void {
           logger.blank();
 
           for (const workspace of workspaces) {
-            logger.info(`--- ${workspace.name} (${workspace.type}) ---`);
+            logger.info(`--- ${workspace.name} ---`);
 
             const names = generateSecretNames(workspace.name);
 
@@ -190,7 +190,7 @@ export function registerSecretsInitCommand(program: Command): void {
                 logger.info(`${names.workspaceId} already set (repo level)`);
               }
             } else {
-              logger.warn(`No workspace_id in domains.yaml for ${workspace.name}`);
+              logger.warn(`No workspace_id in registry.yaml for ${workspace.name}`);
             }
 
             // Credentials per environment (environment level)

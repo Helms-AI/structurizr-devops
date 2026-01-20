@@ -2,7 +2,16 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as dotenv from 'dotenv';
 import * as yaml from 'yaml';
-import type { Config, DomainCredentials, EnvironmentCredentials, DomainsRegistry, Environment } from '../types';
+import type { Config, EnvironmentCredentials, WorkspaceRegistry, Environment } from '../types';
+
+/**
+ * Simple credentials structure for workspace API access
+ */
+export interface WorkspaceCredentialValues {
+  workspaceId: string;
+  workspaceKey: string;
+  workspaceSecret: string;
+}
 
 function findProjectRoot(): string {
   let dir = process.cwd();
@@ -18,14 +27,15 @@ function findProjectRoot(): string {
   return process.cwd();
 }
 
-function getCurrentQuarter(projectRoot: string): string {
-  const domainsYamlPath = path.join(projectRoot, 'workspaces', 'shared', 'domains.yaml');
-  if (fs.existsSync(domainsYamlPath)) {
+function getCurrentWorkspace(projectRoot: string): string {
+  const registryPath = path.join(projectRoot, 'workspaces', 'shared', 'registry.yaml');
+  if (fs.existsSync(registryPath)) {
     try {
-      const content = fs.readFileSync(domainsYamlPath, 'utf-8');
-      const registry = yaml.parse(content) as DomainsRegistry;
-      if (registry.current_quarter) {
-        return registry.current_quarter;
+      const content = fs.readFileSync(registryPath, 'utf-8');
+      const registry = yaml.parse(content) as WorkspaceRegistry;
+      // Support both old and new field names
+      if (registry.current_workspace) {
+        return registry.current_workspace;
       }
     } catch {
       // Fall through to default
@@ -44,13 +54,12 @@ export function loadConfig(): Config {
     dotenv.config({ path: envFile, override: true });
   }
 
-  const currentQuarter = getCurrentQuarter(projectRoot);
+  const currentWorkspace = getCurrentWorkspace(projectRoot);
 
   return {
     rootDir: projectRoot,
     projectRoot,
     workspacesDir: path.join(projectRoot, 'workspaces'),
-    currentDir: path.join(projectRoot, 'workspaces', 'current'),
     sharedDir: path.join(projectRoot, 'workspaces', 'shared'),
     containersDir: path.join(projectRoot, 'containers'),
     envFile,
@@ -58,37 +67,26 @@ export function loadConfig(): Config {
     adminApiKey: process.env.STRUCTURIZR_ADMIN_API_KEY || '',
     javaSSLOpts:
       '-Dcom.sun.net.ssl.checkRevocation=false -Djsse.enableSNIExtension=true -Dhttps.protocols=TLSv1.2,TLSv1.3 -Djdk.tls.client.protocols=TLSv1.2,TLSv1.3',
-    currentQuarter,
+    currentWorkspace,
   };
 }
 
 /**
- * Get domain credentials from environment variables.
+ * Get workspace credentials from environment variables.
  *
- * Credentials use simple names without environment suffixes:
- * - STRUCTURIZR_{NAME}_WORKSPACE_ID
- * - STRUCTURIZR_{NAME}_WORKSPACE_KEY
- * - STRUCTURIZR_{NAME}_WORKSPACE_SECRET
+ * Credentials use simple names:
+ * - STRUCTURIZR_WORKSPACE_ID
+ * - STRUCTURIZR_WORKSPACE_KEY
+ * - STRUCTURIZR_WORKSPACE_SECRET
  *
  * For Local: loaded from .env file
  * For Integration/Production: provided via GitHub Actions environment
  */
-export function getDomainCredentials(domain: string, _environment?: Environment): DomainCredentials {
-  const domainUpper = domain.toUpperCase().replace(/-/g, '_');
-
+export function getWorkspaceCredentials(_environment?: Environment): WorkspaceCredentialValues {
   return {
-    workspaceId:
-      process.env[`STRUCTURIZR_${domainUpper}_WORKSPACE_ID`] ||
-      process.env.STRUCTURIZR_WORKSPACE_ID ||
-      '',
-    workspaceKey:
-      process.env[`STRUCTURIZR_${domainUpper}_WORKSPACE_KEY`] ||
-      process.env.STRUCTURIZR_WORKSPACE_KEY ||
-      '',
-    workspaceSecret:
-      process.env[`STRUCTURIZR_${domainUpper}_WORKSPACE_SECRET`] ||
-      process.env.STRUCTURIZR_WORKSPACE_SECRET ||
-      '',
+    workspaceId: process.env.STRUCTURIZR_WORKSPACE_ID || '',
+    workspaceKey: process.env.STRUCTURIZR_WORKSPACE_KEY || '',
+    workspaceSecret: process.env.STRUCTURIZR_WORKSPACE_SECRET || '',
   };
 }
 
@@ -100,33 +98,14 @@ export function getDomainCredentials(domain: string, _environment?: Environment)
  * For Integration/Production: provided via GitHub Actions environment
  */
 export function getEnvironmentCredentials(
-  domain: string,
-  environment: Environment,
+  _environment: Environment,
   config: Config
 ): EnvironmentCredentials {
-  const creds = getDomainCredentials(domain, environment);
+  const creds = getWorkspaceCredentials(_environment);
 
   return {
     url: config.structurizrUrl,
     ...creds,
-  };
-}
-
-/**
- * Get workspace credentials for unified workspace (single workspace per quarter).
- *
- * Credentials use simple names without domain prefixes:
- * - STRUCTURIZR_WORKSPACE_KEY
- * - STRUCTURIZR_WORKSPACE_SECRET
- *
- * For Local: loaded from .env file
- * For Integration/Production: provided via GitHub Actions environment
- */
-export function getWorkspaceCredentials(_environment?: Environment): DomainCredentials {
-  return {
-    workspaceId: process.env.STRUCTURIZR_WORKSPACE_ID || '',
-    workspaceKey: process.env.STRUCTURIZR_WORKSPACE_KEY || '',
-    workspaceSecret: process.env.STRUCTURIZR_WORKSPACE_SECRET || '',
   };
 }
 

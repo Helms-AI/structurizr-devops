@@ -18,7 +18,7 @@ Developer ──► Edit DSL ────►│  │ Structurizr     │  │ St
                             │           │ Save to DSL           │ Promote    │
                             │           ▼                       │            │
                             │  ┌────────────────────────────────┴──────────┐ │
-                            │  │      workspaces/current/workspace.dsl     │ │
+                            │  │      workspaces/{quarter}/workspace.dsl   │ │
                             │  └───────────────────────────────────────────┘ │
                             │                                                 │
                             │  ┌───────────────────────────────────────────┐ │
@@ -111,8 +111,7 @@ structurizr-devops/
 │   │   └── structurizr.properties
 │   └── .env.example
 ├── workspaces/
-│   ├── current -> q2-2025/        # Symlink to active quarter
-│   ├── q2-2025/                   # Current quarter (unified)
+│   ├── q2-2025/                   # Quarter workspace (unified)
 │   │   ├── workspace.dsl          # Main entry point
 │   │   ├── model/
 │   │   │   ├── people.dsl         # Actors and stakeholders
@@ -164,12 +163,22 @@ Use `./cli` from the project root (auto-builds on first run):
 ./cli workspace:delete                  # Alias for demote -e Local
 ```
 
-### Quarterly Operations
+### Workspace Creation
 
 ```bash
-./cli quarter:new q3-2025               # Create new quarter directory
-./cli quarter:switch q3-2025            # Update current symlink
-./cli quarter:snapshot q2-2025          # Create git tag for milestone
+./cli workspace:create q3-2025 --empty  # Create new empty quarter workspace
+./cli workspace:create q3-2025          # Copy from current quarter
+./cli workspace:create q3-2025 --from q2-2025  # Copy from specific quarter
+```
+
+### Branching and Merging
+
+```bash
+./cli workspace:branch q3-2025          # Create new workspace from current (with own ID)
+./cli workspace:branch q3-2025 --from q2-2025  # Branch from specific quarter
+./cli workspace:lineage                 # Show workspace inheritance tree
+./cli workspace:diff q1-2025 q2-2025    # Compare two workspaces
+./cli workspace:merge -q q3-2025        # Merge parent changes into child
 ```
 
 ### Secrets Management
@@ -216,20 +225,27 @@ The project uses a unified structure where each quarter contains a single `works
 
 ```
 workspaces/
-├── current -> q2-2025/           # Symlink to active quarter
-├── q2-2025/                      # Current quarter
+├── q2-2025/                      # Quarter workspace
 │   ├── workspace.dsl             # Single entry point
 │   ├── model/                    # All models in one place
 │   ├── views/                    # All views
 │   └── styles/                   # Shared styling
 └── shared/
-    └── registry.yaml             # Quarter/domain metadata
+    └── registry.yaml             # Quarter metadata (current_quarter, workspace IDs)
 ```
 
 ### Workspace ID Strategy
 
-- **Single workspace ID** (e.g., `6`) for the entire project
-- **Structurizr branches** for quarterly isolation
+Two approaches are supported:
+
+**Per-Quarter IDs (new):** Each quarter has its own workspace ID with lineage tracking
+- Created with `./cli workspace:branch`
+- Enables parent-child relationships and one-way merge
+- URLs: `/workspace/12`, `/workspace/13`
+
+**Legacy Branch-Based:** Single workspace ID with Structurizr branches
+- Single workspace ID (e.g., `6`) for the entire project
+- Structurizr branches for quarterly isolation
 - URLs: `/workspace/6/q2-2025`, `/workspace/6/q1-2025`
 
 ### Tagging Strategy
@@ -261,7 +277,7 @@ systemLandscape "Executive-View" {
 
 1. Create model file:
    ```bash
-   touch workspaces/current/model/domains/inventory/system.dsl
+   touch workspaces/{workspace}/model/domains/inventory/system.dsl
    ```
 
 2. Add include to main workspace:
@@ -272,7 +288,7 @@ systemLandscape "Executive-View" {
 
 3. Create domain view:
    ```bash
-   touch workspaces/current/views/domains/inventory.dsl
+   touch workspaces/{workspace}/views/domains/inventory.dsl
    ```
 
 4. Update registry:
@@ -293,7 +309,7 @@ systemLandscape "Executive-View" {
 - **Trigger**: Push to any branch, PR to main/develop
 - **Action**: Validates DSL files and runs CLI tests
 - **Runner**: `self-hosted, structurizr, nerdctl`
-- **Jobs**: Validates workspaces in `workspaces/current/`
+- **Jobs**: Validates workspaces in the current quarter (set in `registry.yaml`)
 
 ### Promote Workspaces (promote.yml)
 
@@ -314,37 +330,42 @@ Unified promotion workflow for all environments.
 
 ```
 workspaces/
-├── current -> q2-2025/           # Symlink to active quarter
 ├── q1-2025/                      # Past quarter (archived)
 ├── q2-2025/                      # Current quarter (active)
 └── q3-2025/                      # Future quarter (planning)
 ```
 
+The active quarter is configured in `registry.yaml`:
+```yaml
+current_quarter: q2-2025
+```
+
 - **Past quarter** = Archive (e.g., `q1-2025/` when in Q2)
-- **Current quarter** = Active development (symlinked)
+- **Current quarter** = Active development (set in `current_quarter`)
 - **Future quarter** = Planning (e.g., `q3-2025/` when in Q2)
 
 ### Quarterly Workflow
 
 #### Normal Development
 
-1. Work in `workspaces/current/` (points to active quarter)
+1. Work in the quarter specified by `current_quarter` in `registry.yaml`
 2. Push to `develop` → auto-promotes to Integration
 3. Merge to `main` → manual promote to Production
 
 #### Start Planning Next Quarter
 
 ```bash
-./cli quarter:new q3-2025                 # Create planning directory
+./cli workspace:create q3-2025            # Create empty workspace directory
+./cli workspace:branch q3-2025            # Or create with own workspace ID (recommended)
 # Edit workspaces/q3-2025/ for future changes
 ```
 
 #### End of Quarter Rollover
 
 ```bash
-./cli quarter:snapshot q2-2025            # Tag q2-2025-final in git
-./cli quarter:switch q3-2025              # Update current symlink
-./cli workspace:promote                   # Deploy new quarter
+git tag q2-2025-final -m "Quarterly snapshot"  # Create git tag for milestone
+# Edit registry.yaml: current_quarter: q3-2025
+./cli workspace:promote                        # Deploy new quarter
 ```
 
 #### Deploy Historical Quarter
@@ -405,10 +426,10 @@ nerdctl compose logs structurizr-onpremises
 ### Validation fails
 
 ```bash
-# Run validation with verbose output
+# Run validation with verbose output (replace {workspace} with actual quarter)
 nerdctl run --rm -v "$PWD:/workspaces:ro" \
   structurizr/cli:latest validate \
-  -workspace /workspaces/workspaces/current/workspace.dsl
+  -workspace /workspaces/workspaces/{workspace}/workspace.dsl
 ```
 
 ### Promotion fails

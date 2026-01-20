@@ -8,7 +8,7 @@ This is a DevOps pipeline for promoting Structurizr architecture workspaces from
 
 **Key Components:**
 - **Quarters**: Unified workspaces per quarter (`workspaces/q2-2025/workspace.dsl`)
-- **Current**: Symlink to active quarter (`workspaces/current -> q2-2025`)
+- **Active Quarter**: Configured in `registry.yaml` via `current_quarter` field
 - **Model**: Unified architecture model (`model/people.dsl`, `model/external-systems.dsl`, `model/domains/`)
 - **Views**: Domain and perspective views (`views/domains/`, `views/perspectives/`)
 - **Styles**: Shared styling (`styles/theme.dsl`)
@@ -26,8 +26,7 @@ The project uses a unified workspace structure where each quarter contains a sin
 
 ```
 workspaces/
-├── current -> q2-2025/           # Symlink to active quarter
-├── q2-2025/                      # Current quarter (unified workspace)
+├── q2-2025/                      # Quarter workspace (unified)
 │   ├── workspace.dsl             # Main entry point
 │   ├── model/                    # Unified model
 │   │   ├── people.dsl            # All actors/stakeholders
@@ -55,10 +54,18 @@ workspaces/
 
 ### Workspace ID Strategy
 
-Single workspace ID with branches for quarterly isolation:
-- One workspace ID (e.g., `1`) for the entire project
+The project supports two approaches (coexisting):
+
+**New ID-based approach (recommended for new quarters):**
+- Each quarter has its own workspace ID
+- Parent-child relationships tracked in registry
+- Supports branching and merging between quarters
+- Created with `./cli workspace:branch`
+
+**Legacy branch-based approach (existing quarters):**
+- Single workspace ID (e.g., `6`) for the entire project
 - Structurizr branches for quarterly snapshots
-- URLs: `/workspace/1/q2-2025`, `/workspace/1/q1-2025`
+- URLs: `/workspace/6/q2-2025`, `/workspace/6/q1-2025`
 
 ### Tagging Strategy
 
@@ -80,6 +87,7 @@ Use `./cli` from the project root (auto-builds on first run):
 ```bash
 # Workspace Management (Quarter-Level)
 ./cli workspace:list                    # List quarters and workspace info
+./cli workspace:list --quarters         # List quarters with IDs and lineage
 ./cli workspace:validate                # Validate current quarter
 ./cli workspace:validate -q q1-2025     # Validate specific quarter
 ./cli workspace:promote                 # Promote current quarter to Local
@@ -89,9 +97,21 @@ Use `./cli` from the project root (auto-builds on first run):
 ./cli workspace:promote --dry-run       # Show what would be promoted
 ./cli workspace:promote --validate      # Validate before promoting
 
-# Quarterly Operations
-./cli quarter:new q3-2025               # Create new quarter directory
-./cli quarter:switch q3-2025            # Update current symlink
+# Workspace Branching & Merging (New)
+./cli workspace:branch q3-2025          # Create new quarter from current
+./cli workspace:branch q3-2025 --from q2-2025  # Branch from specific quarter
+./cli workspace:lineage                 # Show workspace inheritance tree
+./cli workspace:diff q1-2025 q2-2025    # Compare two quarters
+./cli workspace:diff --from-parent      # Compare current with parent
+./cli workspace:merge                   # Merge parent changes into current
+./cli workspace:merge -q q3-2025        # Merge into specific quarter
+./cli workspace:merge --dry-run         # Preview merge without applying
+./cli workspace:merge --strategy ours   # Auto-resolve conflicts with ours
+
+# Workspace Creation
+./cli workspace:create q3-2025 --empty  # Create new empty quarter workspace
+./cli workspace:create q3-2025          # Copy from current quarter
+./cli workspace:create q3-2025 --from q2-2025  # Copy from specific quarter
 
 # Secrets Management (requires -e environment flag)
 ./cli secrets:list -e local             # List secrets from .env file
@@ -144,10 +164,12 @@ CI/CD Pipeline:
 **Deployment Flow:**
 ```
 workspaces/
-├── current -> q2-2025/           # Symlink to active quarter
-├── q2-2025/workspace.dsl         # → workspace 1, branch: q2-2025
-└── q1-2025/workspace.dsl         # → workspace 1, branch: q1-2025
+├── q2-2025/workspace.dsl         # → workspace 1, branch: q2-2025 (legacy)
+├── q1-2025/workspace.dsl         # → workspace 1, branch: q1-2025 (legacy)
+└── q3-2025/workspace.dsl         # → workspace 12 (own ID, new approach)
 ```
+
+The active quarter is set in `registry.yaml` via `current_quarter: q2-2025`.
 
 **Service Ports:**
 - 20000: On-Premises (promotion target, always running)
@@ -175,6 +197,45 @@ workspaces/
 | `ci.yml` | Push/PR | Validates DSL files |
 | `promote.yml` | Push to develop / Manual | Promotes to environments |
 
+## Registry Schema
+
+The `workspaces/shared/registry.yaml` file defines workspace configuration:
+
+```yaml
+# Legacy root workspace ID (for branch-based quarters)
+workspace_id: 6
+lite_port: 20100
+current_quarter: q2-2025
+
+quarters:
+  # Legacy branch-based quarter (no workspace_id)
+  q2-2025:
+    name: Q2 2025
+    description: Q2 2025 architecture workspace
+    branch: q2-2025
+    status: active
+    workspace_file: workspace.dsl
+
+  # New ID-based quarter (has workspace_id)
+  q3-2025:
+    name: Q3 2025
+    description: Q3 2025 architecture workspace
+    branch: q3-2025
+    status: active
+    workspace_file: workspace.dsl
+    workspace_id: 12          # Own workspace ID
+    parent: q2-2025           # Parent quarter for merging
+    merge_base: "a1b2c3d4"    # Last merge point (hash)
+    api_key: "key-xxx"        # Per-quarter credentials
+    api_secret: "secret-xxx"
+```
+
+**Quarter Fields:**
+- `workspace_id`: Per-quarter workspace ID (new approach)
+- `parent`: Parent quarter for lineage tracking
+- `merge_base`: Last merge commit hash for three-way merge
+- `api_key`, `api_secret`: Credentials for this quarter's workspace
+
 ## Key Files
 
 ### Configuration
@@ -184,10 +245,10 @@ workspaces/
 - `workspaces/shared/registry.yaml` - Workspace registry
 
 ### Workspace DSL Files
-- `workspaces/current/workspace.dsl` - Main workspace entry point
-- `workspaces/current/model/*.dsl` - Model definitions
-- `workspaces/current/views/**/*.dsl` - View definitions
-- `workspaces/current/styles/theme.dsl` - Styling
+- `workspaces/{quarter}/workspace.dsl` - Main workspace entry point
+- `workspaces/{quarter}/model/*.dsl` - Model definitions
+- `workspaces/{quarter}/views/**/*.dsl` - View definitions
+- `workspaces/{quarter}/styles/theme.dsl` - Styling
 
 ## Secrets and Variables Configuration
 
@@ -243,16 +304,22 @@ STRUCTURIZR_WORKSPACE_SECRET           # API secret
 # Health check
 curl http://localhost:20000/health
 
-# Verbose validation
+# Verbose validation (replace {workspace} with actual quarter, e.g., q1-2026)
 nerdctl run --rm -v "$PWD:/workspaces:ro" \
   structurizr/cli:latest validate \
-  -workspace /workspaces/workspaces/current/workspace.dsl
+  -workspace /workspaces/workspaces/{workspace}/workspace.dsl
 
 # Check GitHub CLI auth
 gh auth status
 
-# List available quarters
-./cli workspace:list
+# List available quarters with workspace IDs
+./cli workspace:list --quarters
+
+# View workspace lineage tree
+./cli workspace:lineage
+
+# Compare current quarter with parent
+./cli workspace:diff --from-parent
 
 # Runner status
 ./svc.sh status

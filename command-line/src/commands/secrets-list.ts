@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import ora from 'ora';
 import { loadConfig } from '../lib/config';
-import { listAllWorkspaces } from '../lib/domains';
+import { getWorkspacesForSecrets } from '../lib/workspace-registry';
 import { checkGitHubCli, listSecrets, listEnvironmentSecrets, generateSecretNames, getRepoPath } from '../lib/github';
 import { listEnvValues, getEnvFilePath, envFileExists } from '../lib/dotenv';
 import { logger } from '../lib/logger';
@@ -116,7 +116,7 @@ async function handleLocalSecrets(config: ReturnType<typeof loadConfig>, check?:
   if (check) {
     logger.subheader('Workspace Secret Status (Local)');
 
-    const workspaces = listAllWorkspaces(config, 'current');
+    const workspaces = getWorkspacesForSecrets(config);
     const valueNames = new Set(values.map((v) => v.name));
 
     let hasIssues = false;
@@ -138,7 +138,7 @@ async function handleLocalSecrets(config: ReturnType<typeof loadConfig>, check?:
       const allGood = hasId && hasKey && hasSecret;
       const status = allGood ? '\u2713' : '\u2717';
 
-      logger.info(`${status} ${workspace.name} (${workspace.type}):`);
+      logger.info(`${status} ${workspace.name}:`);
 
       if (!hasId) {
         logger.info(`    Missing: ${names.workspaceId}`);
@@ -250,7 +250,7 @@ async function handleGitHubSecrets(
   if (check) {
     logger.subheader(`Workspace Secret Status (${environment})`);
 
-    const workspaces = listAllWorkspaces(config, 'current');
+    const workspaces = getWorkspacesForSecrets(config);
     const repoSecretNames = new Set(repoSecrets.map((s) => s.name));
     const envSecretNames = new Set(envSecrets.map((s) => s.name));
 
@@ -277,7 +277,7 @@ async function handleGitHubSecrets(
       const allGood = hasId && hasKey && hasSecret;
       const status = allGood ? '\u2713' : '\u2717';
 
-      logger.info(`${status} ${workspace.name} (${workspace.type}):`);
+      logger.info(`${status} ${workspace.name}:`);
 
       if (!hasId) {
         logger.info(`    Missing: ${names.workspaceId} (repo level)`);
@@ -296,7 +296,7 @@ async function handleGitHubSecrets(
 
     if (hasIssues) {
       logger.warn('Some secrets are missing');
-      logger.info('Use ./cli secrets:sync to sync workspace IDs from domains.yaml');
+      logger.info('Use ./cli secrets:sync to sync workspace IDs from registry.yaml');
       logger.info(`Use ./cli secrets:init -e ${environment} to set up secrets`);
     } else {
       logger.success(`All workspace secrets for ${environment} are configured!`);

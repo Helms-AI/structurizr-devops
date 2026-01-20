@@ -3,13 +3,13 @@
 import { Command } from 'commander';
 import { registerValidateCommand } from './commands/workspace-validate';
 import { registerPromoteCommand } from './commands/workspace-promote';
-import { registerWorkspaceInitCommand } from './commands/workspace-init';
 import { registerWorkspaceCreateCommand } from './commands/workspace-create';
 import { registerWorkspaceDemoteCommand } from './commands/workspace-demote';
 import { registerWorkspaceDeleteCommand } from './commands/workspace-delete';
-import { registerQuarterSnapshotCommand } from './commands/quarter-snapshot';
-import { registerQuarterSwitchCommand } from './commands/quarter-switch';
-import { registerQuarterNewCommand } from './commands/quarter-new';
+import { registerWorkspaceBranchCommand } from './commands/workspace-branch';
+import { registerWorkspaceLineageCommand } from './commands/workspace-lineage';
+import { registerWorkspaceDiffCommand } from './commands/workspace-diff';
+import { registerWorkspaceMergeCommand } from './commands/workspace-merge';
 import { registerAdminGenerateKeyCommand } from './commands/admin-generate-key';
 import { registerListCommand } from './commands/workspace-list';
 import { registerSecretsListCommand } from './commands/secrets-list';
@@ -36,15 +36,13 @@ program
 registerListCommand(program);
 registerValidateCommand(program);
 registerPromoteCommand(program);
-registerWorkspaceInitCommand(program);
 registerWorkspaceCreateCommand(program);
 registerWorkspaceDemoteCommand(program);
 registerWorkspaceDeleteCommand(program);
-
-// Quarter commands
-registerQuarterSnapshotCommand(program);
-registerQuarterSwitchCommand(program);
-registerQuarterNewCommand(program);
+registerWorkspaceBranchCommand(program);
+registerWorkspaceLineageCommand(program);
+registerWorkspaceDiffCommand(program);
+registerWorkspaceMergeCommand(program);
 
 // Secrets commands
 registerSecretsListCommand(program);

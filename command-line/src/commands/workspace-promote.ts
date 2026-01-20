@@ -10,14 +10,15 @@ import {
   translateUrlForContainer,
 } from '../lib/docker';
 import {
-  listQuarters,
-  quarterExists,
+  listWorkspaces,
+  workspaceExists,
   isUnifiedStructure,
-  getWorkspacePath,
+  getWorkspaceDslPath,
   getWorkspaceId,
-  getQuarterBranch,
-  getQuarterWorkspaceInfo,
-} from '../lib/quarters';
+  getWorkspaceBranch,
+  getWorkspacePromotionInfo,
+  resolveWorkspace,
+} from '../lib/workspace-registry';
 import { setEnvValue, getEnvFilePath } from '../lib/dotenv';
 import { logger } from '../lib/logger';
 import { createAdminClient, isStructurizrApiError } from '../lib/structurizr';
@@ -35,8 +36,8 @@ function updateRegistryWithWorkspaceId(config: Config, workspaceId: string): boo
       const registry = {
         workspace_id: parseInt(workspaceId, 10),
         lite_port: 20100,
-        current_quarter: 'current',
-        quarters: {},
+        current_workspace: 'current',
+        workspaces: {},
       };
       fs.writeFileSync(registryPath, yaml.stringify(registry));
       return true;
@@ -56,16 +57,16 @@ function updateRegistryWithWorkspaceId(config: Config, workspaceId: string): boo
 export function registerPromoteCommand(program: Command): void {
   program
     .command('workspace:promote')
-    .description('Promote a quarter workspace to Structurizr On-Premises')
-    .option('-q, --quarter <quarter>', 'Quarter to promote (default: current)', 'current')
+    .description('Promote a workspace to Structurizr On-Premises')
+    .option('-w, --workspace <workspace>', 'Workspace to promote (default: current)', 'current')
     .option('-e, --environment <env>', 'Target environment: Local, Integration, or Production', 'Local')
     .option('--validate', 'Run DSL validation before promotion')
     .option('-i, --workspace-id <id>', 'Workspace ID (overrides registry)')
-    .option('-b, --branch <branch>', 'Structurizr branch name (overrides quarter)')
+    .option('-b, --branch <branch>', 'Structurizr branch name (overrides workspace)')
     .option('--init', 'Initialize workspace if it does not exist (creates and saves credentials)')
     .option('--dry-run', 'Show what would be promoted without making changes')
     .action(async (options?: {
-      quarter?: string;
+      workspace?: string;
       environment?: string;
       validate?: boolean;
       workspaceId?: string;
@@ -74,7 +75,15 @@ export function registerPromoteCommand(program: Command): void {
       dryRun?: boolean;
     }) => {
       const config = loadConfig();
-      const quarter = options?.quarter || 'current';
+
+      // Resolve workspace name (translates 'current' to actual workspace from registry)
+      let workspace: string;
+      try {
+        workspace = resolveWorkspace(config, options?.workspace || 'current');
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      }
 
       // Normalize environment (case-insensitive)
       let environment;
@@ -88,26 +97,26 @@ export function registerPromoteCommand(program: Command): void {
       const isLocal = environment === 'Local';
 
       logger.header('Structurizr Workspace Promotion');
-      logger.keyValue('Quarter', quarter);
+      logger.keyValue('Workspace', workspace);
       logger.keyValue('Environment', environment);
       logger.blank();
 
-      // Check if quarter exists
-      if (!quarterExists(config, quarter)) {
-        logger.error(`Quarter '${quarter}' not found`);
+      // Check if workspace exists
+      if (!workspaceExists(config, workspace)) {
+        logger.error(`Workspace '${workspace}' not found`);
         logger.blank();
-        const quarters = listQuarters(config);
-        if (quarters.length > 0) {
-          logger.info('Available quarters:');
-          logger.list(quarters);
+        const workspaces = listWorkspaces(config);
+        if (workspaces.length > 0) {
+          logger.info('Available workspaces:');
+          logger.list(workspaces);
         }
         process.exit(1);
       }
 
       // Check structure type
-      const isUnified = isUnifiedStructure(config, quarter);
+      const isUnified = isUnifiedStructure(config, workspace);
       if (!isUnified) {
-        logger.warn(`Quarter '${quarter}' uses legacy structure.`);
+        logger.warn(`Workspace '${workspace}' uses legacy structure.`);
         logger.info('Consider migrating to the unified workspace structure.');
         logger.blank();
         logger.info('For legacy promotion, use the domain-specific pattern.');
@@ -115,9 +124,9 @@ export function registerPromoteCommand(program: Command): void {
       }
 
       // Get workspace info
-      const workspaceInfo = getQuarterWorkspaceInfo(config, quarter);
+      const workspaceInfo = getWorkspacePromotionInfo(config, workspace);
       if (!workspaceInfo) {
-        logger.error(`Could not load workspace info for quarter '${quarter}'`);
+        logger.error(`Could not load workspace info for '${workspace}'`);
         process.exit(1);
       }
 
@@ -129,13 +138,26 @@ export function registerPromoteCommand(program: Command): void {
         process.exit(1);
       }
 
-      const workspacePath = getWorkspacePath(config, quarter);
+      const workspacePath = getWorkspaceDslPath(config, workspace);
 
-      // Get workspace ID (from option or registry)
-      let workspaceId = options?.workspaceId || String(getWorkspaceId(config) || '');
+      // Get workspace ID - prefer per-workspace ID (new approach) over root ID (legacy)
+      let workspaceId: string;
+      let credentials: { workspaceId: string; workspaceKey: string; workspaceSecret: string };
 
-      // Get credentials
-      let credentials = getWorkspaceCredentials(environment);
+      if (workspaceInfo.hasOwnWorkspaceId) {
+        // New ID-based approach: workspace has its own workspace ID
+        workspaceId = options?.workspaceId || String(workspaceInfo.workspaceId);
+        credentials = {
+          workspaceId,
+          workspaceKey: workspaceInfo.credentials?.apiKey || '',
+          workspaceSecret: workspaceInfo.credentials?.apiSecret || '',
+        };
+        logger.info('Using per-workspace workspace ID (new approach)');
+      } else {
+        // Legacy branch-based approach
+        workspaceId = options?.workspaceId || String(getWorkspaceId(config) || '');
+        credentials = getWorkspaceCredentials(environment);
+      }
 
       // Check if we need to initialize
       const needsInit = !workspaceId || !credentials.workspaceKey || !credentials.workspaceSecret;
@@ -213,12 +235,24 @@ export function registerPromoteCommand(program: Command): void {
         process.exit(1);
       }
 
-      // Get branch (from option, registry, or default to quarter name)
-      const branch = options?.branch || getQuarterBranch(config, quarter);
+      // Get branch (from option, registry, or default to workspace name)
+      // For ID-based workspaces, branch is null unless explicitly specified
+      let branch: string | undefined;
+      if (options?.branch) {
+        branch = options.branch;
+      } else if (!workspaceInfo.hasOwnWorkspaceId) {
+        // Legacy approach uses branches
+        branch = getWorkspaceBranch(config, workspace);
+      }
+      // ID-based workspaces don't use branches by default
 
       logger.keyValue('Workspace Path', workspacePath);
       logger.keyValue('Workspace ID', workspaceId);
-      logger.keyValue('Branch', branch);
+      if (branch) {
+        logger.keyValue('Branch', branch);
+      } else {
+        logger.keyValue('Mode', 'Direct (no branch)');
+      }
       logger.keyValue('Target URL', translateUrlForContainer(targetUrl));
       logger.blank();
 
@@ -226,7 +260,11 @@ export function registerPromoteCommand(program: Command): void {
         logger.info('DRY RUN - No changes will be made');
         logger.blank();
         logger.subheader('Would promote:');
-        logger.info(`  ${quarter} -> workspace ${workspaceId} (branch: ${branch})`);
+        if (branch) {
+          logger.info(`  ${workspace} -> workspace ${workspaceId} (branch: ${branch})`);
+        } else {
+          logger.info(`  ${workspace} -> workspace ${workspaceId} (direct)`);
+        }
         logger.blank();
         return;
       }
@@ -234,18 +272,18 @@ export function registerPromoteCommand(program: Command): void {
       // Validation phase
       if (options?.validate) {
         logger.subheader('Validation Phase');
-        const spinner = ora(`Validating ${quarter}...`).start();
+        const spinner = ora(`Validating ${workspace}...`).start();
         try {
           const valid = await validateWorkspace(config, workspacePath);
           if (valid) {
-            spinner.succeed(`${quarter}: VALID`);
+            spinner.succeed(`${workspace}: VALID`);
           } else {
-            spinner.fail(`${quarter}: INVALID`);
+            spinner.fail(`${workspace}: INVALID`);
             logger.error('Validation failed. Aborting promotion.');
             process.exit(1);
           }
         } catch (error) {
-          spinner.fail(`${quarter}: ERROR`);
+          spinner.fail(`${workspace}: ERROR`);
           logger.error(error instanceof Error ? error.message : String(error));
           process.exit(1);
         }
@@ -255,7 +293,7 @@ export function registerPromoteCommand(program: Command): void {
       // Promotion phase
       logger.subheader('Promotion Phase');
 
-      const spinner = ora(`Promoting ${quarter} to workspace ${workspaceId}...`).start();
+      const spinner = ora(`Promoting ${workspace} to workspace ${workspaceId}...`).start();
 
       try {
         const success = await pushWorkspace(
@@ -269,14 +307,18 @@ export function registerPromoteCommand(program: Command): void {
         );
 
         if (success) {
-          spinner.succeed(`${quarter}: PROMOTED`);
+          spinner.succeed(`${workspace}: PROMOTED`);
           logger.blank();
 
           // Summary
           logger.header('Promotion Summary');
-          logger.keyValue('Quarter', quarter);
+          logger.keyValue('Workspace', workspace);
           logger.keyValue('Workspace ID', workspaceId);
-          logger.keyValue('Branch', branch);
+          if (branch) {
+            logger.keyValue('Branch', branch);
+          } else {
+            logger.keyValue('Mode', 'Direct (no branch)');
+          }
           logger.keyValue('Environment', environment);
           logger.blank();
 
@@ -285,19 +327,19 @@ export function registerPromoteCommand(program: Command): void {
           const accessUrl = `${baseUrl}/workspace/${workspaceId}`;
           logger.subheader('Access Workspace');
           logger.info(`  ${accessUrl}`);
-          if (branch !== 'main') {
+          if (branch && branch !== 'main') {
             logger.info(`  ${accessUrl}/${branch}`);
           }
           logger.blank();
           logger.success('Workspace promoted successfully!');
         } else {
-          spinner.fail(`${quarter}: FAILED`);
+          spinner.fail(`${workspace}: FAILED`);
           logger.blank();
           logger.error('Promotion failed');
           process.exit(1);
         }
       } catch (error) {
-        spinner.fail(`${quarter}: ERROR`);
+        spinner.fail(`${workspace}: ERROR`);
         logger.blank();
         logger.error(error instanceof Error ? error.message : String(error));
         process.exit(1);

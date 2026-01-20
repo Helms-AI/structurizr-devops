@@ -2,20 +2,13 @@ export interface Config {
   rootDir: string;
   projectRoot: string;
   workspacesDir: string;
-  currentDir: string;
   sharedDir: string;
   containersDir: string;
   envFile: string;
   structurizrUrl: string;
   adminApiKey: string;
   javaSSLOpts: string;
-  currentQuarter: string;
-}
-
-export interface DomainCredentials {
-  workspaceId: string;
-  workspaceKey: string;
-  workspaceSecret: string;
+  currentWorkspace: string;
 }
 
 export interface EnvironmentCredentials {
@@ -25,54 +18,35 @@ export interface EnvironmentCredentials {
   workspaceSecret: string;
 }
 
-export interface Domain {
-  name: string;
-  description: string;
-  owner: string;
-  workspace_id: number;
-  port: number;
-  workspace_file: string;
-  color: string;
-  tags: string[];
-  dependencies: string[];
-}
-
-export interface Perspective {
-  name: string;
-  description: string;
-  workspace_id: number;
-  port: number;
-  includes: string[];
-}
-
-export interface DomainsRegistry {
-  current_quarter: string;
-  domains: Record<string, Domain>;
-  perspectives: Record<string, Perspective>;
-}
-
 // =============================================================================
-// New Unified Workspace Types (registry.yaml)
+// Workspace Registry Types (registry.yaml)
 // =============================================================================
 
-export interface QuarterRegistry {
-  workspace_id: number;
+export interface WorkspaceRegistry {
   lite_port: number;
-  current_quarter: string;
-  quarters: Record<string, QuarterDefinition>;
-  domains?: Record<string, DomainMetadata>;
-  perspectives?: Record<string, PerspectiveMetadata>;
+  current_workspace: string;
+  workspaces: Record<string, WorkspaceDefinition>;
 }
 
-export interface QuarterDefinition {
+export interface WorkspaceDefinition {
   name: string;
   description: string;
-  branch: string;
+  branch?: string;
   status: 'active' | 'archived' | 'planned';
   workspace_file: string;
+  /** Per-workspace workspace ID */
+  workspace_id?: number;
+  /** Parent workspace reference for lineage tracking */
+  parent?: string;
+  /** Last common merge point (workspace JSON hash for three-way merge) */
+  merge_base?: string;
+  /** API key for this workspace */
+  api_key?: string;
+  /** API secret for this workspace */
+  api_secret?: string;
 }
 
-export interface QuarterInfo {
+export interface WorkspaceEntry {
   name: string;
   description: string;
   branch: string;
@@ -80,30 +54,26 @@ export interface QuarterInfo {
   workspaceFile: string;
 }
 
-export interface QuarterWorkspaceInfo {
-  quarter: string;
+export interface WorkspacePromotionInfo {
+  workspace: string;
   path: string;
   workspaceId: number;
-  branch: string;
+  /** Branch name (only used for legacy branch-based approach, null for ID-based) */
+  branch: string | null;
   isUnified: boolean;
-}
-
-export interface DomainMetadata {
-  name: string;
-  description: string;
-  owner: string;
-  color: string;
-  tags: string[];
-}
-
-export interface PerspectiveMetadata {
-  name: string;
-  description: string;
-  filter_tags: string[];
+  /** Whether this workspace uses the new per-workspace workspace ID approach */
+  hasOwnWorkspaceId: boolean;
+  /** Parent workspace name (if any) */
+  parent?: string;
+  /** API credentials for this workspace (if using per-workspace IDs) */
+  credentials?: {
+    apiKey: string;
+    apiSecret: string;
+  };
 }
 
 export interface ValidationResult {
-  domain: string;
+  workspace: string;
   valid: boolean;
   error?: string;
 }
@@ -112,16 +82,6 @@ export interface WorkspaceCredentials {
   id: string;
   apiKey: string;
   apiSecret: string;
-}
-
-export type WorkspaceType = 'domain' | 'perspective';
-
-export interface WorkspaceInfo {
-  name: string;
-  type: WorkspaceType;
-  quarter: string;
-  path: string;
-  workspaceId: number;
 }
 
 export type Environment = 'Local' | 'Integration' | 'Production';
@@ -261,4 +221,90 @@ export interface ApiResponse {
   success: boolean;
   message?: string;
   revision?: number;
+}
+
+// =============================================================================
+// Merge Types
+// =============================================================================
+
+/**
+ * Represents a difference between two workspace elements.
+ */
+export interface ElementDiff<T = unknown> {
+  type: 'added' | 'removed' | 'modified';
+  path: string;
+  before?: T;
+  after?: T;
+}
+
+/**
+ * Full diff between two workspaces.
+ */
+export interface WorkspaceDiff {
+  model: {
+    people: ElementDiff[];
+    softwareSystems: ElementDiff[];
+    deploymentNodes: ElementDiff[];
+  };
+  relationships: ElementDiff[];
+  views: {
+    systemLandscape: ElementDiff[];
+    systemContext: ElementDiff[];
+    container: ElementDiff[];
+    component: ElementDiff[];
+    dynamic: ElementDiff[];
+    deployment: ElementDiff[];
+    filtered: ElementDiff[];
+    custom: ElementDiff[];
+  };
+  styles: ElementDiff[];
+  documentation: ElementDiff[];
+  stats: {
+    added: number;
+    removed: number;
+    modified: number;
+  };
+}
+
+/**
+ * Merge conflict details.
+ */
+export interface MergeConflict {
+  type: 'element' | 'relationship' | 'view' | 'style' | 'documentation';
+  path: string;
+  description: string;
+  base: unknown;
+  ours: unknown;
+  theirs: unknown;
+}
+
+/**
+ * Resolution strategy for merge conflicts.
+ */
+export type MergeStrategy = 'recursive' | 'ours' | 'theirs';
+
+/**
+ * Result of a workspace merge operation.
+ */
+export interface MergeResult {
+  success: boolean;
+  merged: StructurizrWorkspace;
+  conflicts: MergeConflict[];
+  stats: {
+    added: number;
+    modified: number;
+    removed: number;
+    conflictsResolved: number;
+  };
+}
+
+/**
+ * Lineage node for workspace ancestry visualization.
+ */
+export interface LineageNode {
+  workspace: string;
+  workspaceId?: number;
+  parent?: string;
+  status: string;
+  children: string[];
 }

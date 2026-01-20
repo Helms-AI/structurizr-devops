@@ -2,11 +2,12 @@ import { Command } from 'commander';
 import ora from 'ora';
 import { loadConfig } from '../lib/config';
 import {
-  quarterExists,
+  workspaceExists,
   isUnifiedStructure,
   getWorkspaceId,
-  listQuarters,
-} from '../lib/quarters';
+  listWorkspaces,
+  resolveWorkspace,
+} from '../lib/workspace-registry';
 import {
   checkGitHubCli,
   deleteEnvironmentSecret,
@@ -56,15 +57,23 @@ export function registerWorkspaceDemoteCommand(program: Command): void {
     .command('workspace:demote')
     .description('Remove workspace from On-Premises and cleanup secrets')
     .requiredOption('-e, --environment <env>', 'Target environment: Local, Integration, or Production')
-    .option('-q, --quarter <quarter>', 'Quarter to demote (default: current)', 'current')
+    .option('-w, --workspace <workspace>', 'Workspace to demote (default: current)', 'current')
     .option('--dry-run', 'Show what would be demoted without making changes')
     .action(async (options?: {
       environment: string;
-      quarter?: string;
+      workspace?: string;
       dryRun?: boolean;
     }) => {
       const config = loadConfig();
-      const quarter = options?.quarter || 'current';
+
+      // Resolve workspace name
+      let workspace: string;
+      try {
+        workspace = resolveWorkspace(config, options?.workspace || 'current');
+      } catch (error) {
+        logger.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      }
 
       // Normalize environment (case-insensitive)
       let environment;
@@ -78,26 +87,26 @@ export function registerWorkspaceDemoteCommand(program: Command): void {
       const isLocal = environment === 'Local';
 
       logger.header('Structurizr Workspace Demotion');
-      logger.keyValue('Quarter', quarter);
+      logger.keyValue('Workspace', workspace);
       logger.keyValue('Environment', environment);
       logger.blank();
 
-      // Check if quarter exists
-      if (!quarterExists(config, quarter)) {
-        logger.error(`Quarter '${quarter}' not found`);
+      // Check if workspace exists
+      if (!workspaceExists(config, workspace)) {
+        logger.error(`Workspace '${workspace}' not found`);
         logger.blank();
-        const quarters = listQuarters(config);
-        if (quarters.length > 0) {
-          logger.info('Available quarters:');
-          logger.list(quarters);
+        const workspaces = listWorkspaces(config);
+        if (workspaces.length > 0) {
+          logger.info('Available workspaces:');
+          logger.list(workspaces);
         }
         process.exit(1);
       }
 
       // Check structure type
-      const isUnified = isUnifiedStructure(config, quarter);
+      const isUnified = isUnifiedStructure(config, workspace);
       if (!isUnified) {
-        logger.warn(`Quarter '${quarter}' uses legacy structure.`);
+        logger.warn(`Workspace '${workspace}' uses legacy structure.`);
         logger.info('Legacy demotion is not supported in this version.');
         process.exit(1);
       }
@@ -153,7 +162,7 @@ export function registerWorkspaceDemoteCommand(program: Command): void {
         logger.info('DRY RUN - No changes will be made');
         logger.blank();
         logger.subheader('Workspace to demote:');
-        logger.info(`  ${quarter} -> workspace ID ${workspaceId}`);
+        logger.info(`  ${workspace} -> workspace ID ${workspaceId}`);
         logger.blank();
 
         if (isLocal) {
@@ -203,7 +212,7 @@ export function registerWorkspaceDemoteCommand(program: Command): void {
       logger.keyValue('Workspace ID', workspaceId);
       logger.blank();
 
-      const demoteSpinner = ora(`Demoting ${quarter}...`).start();
+      const demoteSpinner = ora(`Demoting ${workspace}...`).start();
 
       let apiDeleted = false;
       const deletedSecrets: string[] = [];
@@ -239,16 +248,16 @@ export function registerWorkspaceDemoteCommand(program: Command): void {
       }
 
       if (success) {
-        demoteSpinner.succeed(`${quarter}: DEMOTED`);
+        demoteSpinner.succeed(`${workspace}: DEMOTED`);
       } else {
-        demoteSpinner.fail(`${quarter}: FAILED`);
+        demoteSpinner.fail(`${workspace}: FAILED`);
       }
 
       logger.blank();
 
       // Summary
       logger.header('Demotion Summary');
-      logger.keyValue('Quarter', quarter);
+      logger.keyValue('Workspace', workspace);
       logger.keyValue('Workspace ID', workspaceId);
       logger.keyValue('Status', success ? 'Success' : 'Failed');
       logger.blank();
@@ -271,7 +280,7 @@ export function registerWorkspaceDemoteCommand(program: Command): void {
         logger.success('Workspace demoted successfully!');
         logger.blank();
         logger.info('Note: DSL files and registry.yaml are preserved');
-        logger.info(`To re-promote: ./cli workspace:promote -q ${quarter} -e ${environment}`);
+        logger.info(`To re-promote: ./cli workspace:promote -w ${workspace} -e ${environment}`);
       } else {
         process.exit(1);
       }
