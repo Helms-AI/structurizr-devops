@@ -60,9 +60,37 @@ services:
       timeout: 10s
       retries: 3
 
+  # =============================================================================
+  # GitHub Actions Self-Hosted Runner (Optional)
+  # =============================================================================
+  # Self-hosted runner for CI/CD pipelines.
+  # Configure with: ./cli runner:init
+  # Start with: nerdctl compose --profile runner up -d github-runner
+  github-runner:
+    image: myoung34/github-runner:latest
+    container_name: github-runner
+    profiles:
+      - runner
+    environment:
+      - REPO_URL=${GITHUB_REPO_URL}
+      - ACCESS_TOKEN=${GITHUB_RUNNER_TOKEN}
+      - RUNNER_NAME=${GITHUB_RUNNER_NAME:-structurizr-runner}
+      - RUNNER_WORKDIR=/tmp/runner
+      - LABELS=self-hosted,structurizr,nerdctl
+      - DISABLE_AUTO_UPDATE=true
+    volumes:
+      # Lima socket for nerdctl compatibility (macOS with Lima)
+      - /var/run/lima/sock:/var/run/docker.sock
+      - runner-work:/tmp/runner
+    restart: unless-stopped
+    depends_on:
+      - structurizr-onpremises
+
 volumes:
   structurizr-data:
     name: structurizr-onpremises-data
+  runner-work:
+    name: github-runner-work
 
 # =============================================================================
 # Quick Reference

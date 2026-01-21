@@ -123,3 +123,51 @@ export function appendToEnvFile(
   }
   fs.appendFileSync(envFile, content);
 }
+
+/**
+ * Update or add entries in the .env file.
+ * If a key exists, its value is updated. If not, it's appended.
+ */
+export function updateEnvFile(
+  envFile: string,
+  entries: Record<string, string>
+): void {
+  let content = '';
+
+  if (fs.existsSync(envFile)) {
+    content = fs.readFileSync(envFile, 'utf-8');
+  }
+
+  for (const [key, value] of Object.entries(entries)) {
+    const regex = new RegExp(`^${key}=.*$`, 'm');
+    const newLine = `${key}=${value}`;
+
+    if (regex.test(content)) {
+      // Update existing entry
+      content = content.replace(regex, newLine);
+    } else {
+      // Append new entry
+      if (!content.endsWith('\n') && content.length > 0) {
+        content += '\n';
+      }
+      content += `${newLine}\n`;
+    }
+  }
+
+  fs.writeFileSync(envFile, content);
+}
+
+/**
+ * Get a specific value from the .env file
+ */
+export function getEnvValue(envFile: string, key: string): string | null {
+  if (!fs.existsSync(envFile)) {
+    return null;
+  }
+
+  const content = fs.readFileSync(envFile, 'utf-8');
+  const regex = new RegExp(`^${key}=(.*)$`, 'm');
+  const match = content.match(regex);
+
+  return match ? match[1] : null;
+}

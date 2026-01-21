@@ -92,3 +92,108 @@ export async function composeDownWithVolumes(
 ): Promise<ComposeResult> {
   return runCompose(config, ['down', '-v'], { stream: options.stream });
 }
+
+/**
+ * Start compose with a specific profile
+ */
+export async function composeUpWithProfile(
+  config: Config,
+  profile: string,
+  options: { detached?: boolean; stream?: boolean; service?: string } = {}
+): Promise<ComposeResult> {
+  const args = ['--profile', profile, 'up'];
+  if (options.detached !== false) {
+    args.push('-d');
+  }
+  if (options.service) {
+    args.push(options.service);
+  }
+  return runCompose(config, args, { stream: options.stream });
+}
+
+/**
+ * Stop a specific service (optionally with profile)
+ */
+export async function composeStopService(
+  config: Config,
+  service: string,
+  options: { stream?: boolean; profile?: string } = {}
+): Promise<ComposeResult> {
+  const args: string[] = [];
+  if (options.profile) {
+    args.push('--profile', options.profile);
+  }
+  args.push('stop', service);
+  return runCompose(config, args, { stream: options.stream });
+}
+
+/**
+ * Remove a specific service (optionally with profile)
+ */
+export async function composeRmService(
+  config: Config,
+  service: string,
+  options: { stream?: boolean; profile?: string; force?: boolean } = {}
+): Promise<ComposeResult> {
+  const args: string[] = [];
+  if (options.profile) {
+    args.push('--profile', options.profile);
+  }
+  args.push('rm');
+  if (options.force) {
+    args.push('-f');
+  }
+  args.push(service);
+  return runCompose(config, args, { stream: options.stream });
+}
+
+export interface ServiceStatus {
+  name: string;
+  running: boolean;
+  status?: string;
+  health?: string;
+}
+
+/**
+ * Get status of a specific service
+ */
+export async function composePs(
+  config: Config,
+  service?: string
+): Promise<ServiceStatus[]> {
+  const args = ['ps', '--format', 'json'];
+  if (service) {
+    args.push(service);
+  }
+
+  const result = await runCompose(config, args);
+  if (!result.success || !result.stdout.trim()) {
+    return [];
+  }
+
+  try {
+    // Docker compose outputs one JSON object per line
+    const lines = result.stdout.trim().split('\n');
+    const services: ServiceStatus[] = [];
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const data = JSON.parse(line) as {
+        Name?: string;
+        Service?: string;
+        State?: string;
+        Health?: string;
+      };
+      services.push({
+        name: data.Service || data.Name || 'unknown',
+        running: data.State === 'running',
+        status: data.State,
+        health: data.Health,
+      });
+    }
+
+    return services;
+  } catch {
+    return [];
+  }
+}

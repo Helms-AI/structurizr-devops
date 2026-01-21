@@ -17,8 +17,20 @@ export const logger = {
     console.log(chalk.green('✓'), message);
   },
 
-  step: (message: string): void => {
-    console.log(chalk.blue('[STEP]'), message);
+  /**
+   * Display a step with optional progress indicator
+   * Usage: step('message') or step(1, 4, 'message')
+   */
+  step: (messageOrCurrent: string | number, total?: number, message?: string): void => {
+    if (typeof messageOrCurrent === 'number' && total !== undefined && message !== undefined) {
+      console.log(chalk.blue(`[${messageOrCurrent}/${total}]`), message);
+    } else {
+      console.log(chalk.blue('[STEP]'), messageOrCurrent);
+    }
+  },
+
+  command: (cmd: string): void => {
+    console.log(chalk.gray('  $'), chalk.cyan(cmd));
   },
 
   header: (title: string): void => {

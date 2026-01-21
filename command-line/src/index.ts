@@ -26,6 +26,10 @@ import { registerSystemStopCommand } from './commands/system-stop';
 import { registerSystemRestartCommand } from './commands/system-restart';
 import { registerSystemLogsCommand } from './commands/system-logs';
 import { registerSystemDataResetCommand } from './commands/system-data-reset';
+import { registerRunnerInitCommand } from './commands/runner-init';
+import { registerRunnerStartCommand } from './commands/runner-start';
+import { registerRunnerStopCommand } from './commands/runner-stop';
+import { registerRunnerStatusCommand } from './commands/runner-status';
 
 const program = new Command();
 
@@ -70,5 +74,11 @@ registerSystemStopCommand(program);
 registerSystemRestartCommand(program);
 registerSystemLogsCommand(program);
 registerSystemDataResetCommand(program);
+
+// Runner commands
+registerRunnerInitCommand(program);
+registerRunnerStartCommand(program);
+registerRunnerStopCommand(program);
+registerRunnerStatusCommand(program);
 
 program.parse(process.argv);

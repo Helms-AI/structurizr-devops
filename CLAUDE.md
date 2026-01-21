@@ -129,6 +129,17 @@ Use `./cli` from the project root (auto-builds on first run):
 ./cli system:stop                       # Stop container
 ./cli system:restart                    # Restart container
 ./cli system:logs -f                    # Follow logs
+
+# GitHub Actions Runner
+./cli runner:init                       # Configure runner (short-lived token, 1hr)
+./cli runner:init --pat <token>         # Configure with PAT (persistent)
+./cli runner:init --start               # Configure and start immediately
+./cli runner:init --dry-run             # Preview configuration
+./cli runner:start                      # Start the runner container
+./cli runner:start --refresh-token      # Refresh token and start
+./cli runner:stop                       # Stop the runner
+./cli runner:stop --remove              # Stop and remove container
+./cli runner:status                     # Check runner status
 ```
 
 ### Local Environment
@@ -174,6 +185,7 @@ The active quarter is set in `registry.yaml` via `current_quarter: q2-2025`.
 **Service Ports:**
 - 20000: On-Premises (promotion target, always running)
 - 20100: Lite (on-demand, configurable via lite.sh)
+- GitHub Runner: No port (profile: runner, on-demand via `./cli runner:start`)
 
 ## Development Workflow
 
@@ -321,6 +333,9 @@ gh auth status
 # Compare current quarter with parent
 ./cli workspace:diff --from-parent
 
-# Runner status
+# Runner status (legacy)
 ./svc.sh status
+
+# Runner status (Docker Compose)
+./cli runner:status
 ```

@@ -288,3 +288,94 @@ export async function createEnvironment(environment: string): Promise<'created' 
     return 'failed';
   }
 }
+
+// =============================================================================
+// GitHub Actions Runner Functions
+// =============================================================================
+
+export interface RunnerRegistrationToken {
+  token: string;
+  expiresAt: string;
+}
+
+export interface GitHubRunner {
+  id: number;
+  name: string;
+  os: string;
+  status: string;
+  busy: boolean;
+  labels: Array<{ name: string }>;
+}
+
+/**
+ * Get the repository URL in https format
+ */
+export async function getRepoUrl(): Promise<string | null> {
+  try {
+    const result = await execa('gh', ['repo', 'view', '--json', 'url', '-q', '.url']);
+    return result.stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Generate a runner registration token for the repository.
+ * The token is valid for 1 hour.
+ */
+export async function generateRunnerToken(): Promise<RunnerRegistrationToken | null> {
+  try {
+    const result = await execa('gh', [
+      'api',
+      'repos/{owner}/{repo}/actions/runners/registration-token',
+      '-X', 'POST',
+      '--jq', '{token: .token, expiresAt: .expires_at}',
+    ]);
+    return JSON.parse(result.stdout) as RunnerRegistrationToken;
+  } catch (error) {
+    logger.error(`Failed to generate runner token: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+/**
+ * List all self-hosted runners for the repository
+ */
+export async function listRunners(): Promise<GitHubRunner[]> {
+  try {
+    const result = await execa('gh', [
+      'api',
+      'repos/{owner}/{repo}/actions/runners',
+      '--jq', '.runners',
+    ]);
+    return JSON.parse(result.stdout) as GitHubRunner[];
+  } catch (error) {
+    logger.error(`Failed to list runners: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  }
+}
+
+/**
+ * Get a specific runner by name
+ */
+export async function getRunnerByName(name: string): Promise<GitHubRunner | null> {
+  const runners = await listRunners();
+  return runners.find((r) => r.name === name) || null;
+}
+
+/**
+ * Delete a runner by ID
+ */
+export async function deleteRunner(runnerId: number): Promise<boolean> {
+  try {
+    await execa('gh', [
+      'api',
+      `repos/{owner}/{repo}/actions/runners/${runnerId}`,
+      '-X', 'DELETE',
+    ]);
+    return true;
+  } catch (error) {
+    logger.error(`Failed to delete runner: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
