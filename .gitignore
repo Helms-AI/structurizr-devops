@@ -14,6 +14,9 @@ secrets/
 # On-Premises data directory (if mounted locally)
 containers/onpremises/data/
 
+# Structurizr Lite cache directories
+.structurizr/
+
 # Workspace JSON exports
 workspaces/**/*.json
 !workspaces/**/workspace.json
@@ -22,6 +25,9 @@ workspaces/**/*.json
 workspaces/**/diagrams/
 *.png
 *.svg
+
+# Accidental double extension files
+*.dsl.dsl
 
 # =============================================================================
 # IDE and Editor
